@@ -1,0 +1,577 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="robots" content="noindex, nofollow">
+<title>Meet up</title>
+<style>
+  :root {
+    --ink: #23241f;
+    --paper: #f7f5ef;
+    --line: #d8d4c6;
+    --free: #eef1e6;
+    --free-strong: #b9c99a;
+    --busy: #ece7e0;
+    --busy-strong: #cfc6b8;
+    --proposed: #f3e2b8;
+    --proposed-strong: #d9b34f;
+    --qt: #e3ccd9;
+    --qt-strong: #a85d8c;
+    --accent: #7a5c3e;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--paper); color: var(--ink); }
+
+  /* --- Passcode gate --- */
+  #gate {
+    min-height: 100vh; display: flex; align-items: center; justify-content: center;
+    flex-direction: column; gap: 14px; padding: 24px;
+  }
+  #gate h1 { font-size: 20px; font-weight: 600; margin: 0; }
+  #gate input {
+    font-size: 18px; padding: 12px 14px; border: 1px solid var(--line);
+    border-radius: 8px; width: 220px; text-align: center; letter-spacing: 2px;
+  }
+  #gate button, .btn {
+    font-size: 15px; padding: 10px 18px; border-radius: 8px; border: none;
+    background: var(--accent); color: white; cursor: pointer;
+  }
+  #gate .err { color: #a13a3a; font-size: 13px; min-height: 16px; }
+
+  /* --- App shell --- */
+  #app { display: none; max-width: 720px; margin: 0 auto; padding: 16px; }
+  header { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 12px; }
+  header h1 { font-size: 18px; margin: 0; }
+  section { background: white; border: 1px solid var(--line); border-radius: 12px; padding: 14px; margin-bottom: 14px; }
+  section h2 { font-size: 14px; text-transform: none; margin: 0 0 8px; color: #555; }
+  .row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+  .pill { font-size: 12px; padding: 4px 10px; border-radius: 999px; border: 1px solid var(--line); }
+  .pill.connected { background: var(--free); border-color: var(--free-strong); }
+
+  /* --- Grid --- */
+  #monthLabel { font-weight: 600; }
+  #monthNav { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
+  table.grid { width: 100%; border-collapse: collapse; font-size: 13px; }
+  table.grid th { font-weight: 500; color: #777; padding: 4px; font-size: 11px; }
+  table.grid td { text-align: center; padding: 0; }
+  .day-label { text-align: left !important; padding-left: 4px !important; white-space: nowrap; }
+  .cell {
+    display: inline-flex; width: 90%; height: 30px; border-radius: 6px;
+    align-items: center; justify-content: center; cursor: pointer; font-size: 11px;
+    border: 1px solid transparent;
+  }
+  .cell.free { background: var(--free); border-color: var(--free-strong); }
+  .cell.busy { background: var(--busy); border-color: var(--busy-strong); cursor: default; }
+  .cell.proposed-mine { background: var(--proposed); border-color: var(--proposed-strong); }
+  .cell.proposed-theirs { background: var(--proposed); border-color: var(--proposed-strong); opacity: 0.6; }
+  .cell.qt { background: var(--qt); border-color: var(--qt-strong); font-weight: 600; color: #5c2d4b; cursor: default; }
+
+  /* --- Tagging modal --- */
+  #tagModal {
+    display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.35);
+    align-items: center; justify-content: center; padding: 20px;
+  }
+  #tagModal .card {
+    background: white; border-radius: 12px; padding: 18px; width: 100%; max-width: 420px;
+    max-height: 80vh; overflow-y: auto;
+  }
+  .tag-item { display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 8px 0; border-bottom: 1px solid var(--line); }
+  .tag-item .meta { font-size: 12px; color: #777; }
+  .tag-item select { font-size: 13px; padding: 4px; }
+
+  #qtList .qt-row { display: flex; justify-content: space-between; align-items: center; padding: 6px 0; border-bottom: 1px solid var(--line); font-size: 13px; }
+</style>
+</head>
+<body>
+
+<!-- ============== PASSCODE GATE ============== -->
+<!-- Nothing below this loads or renders until the passcode is verified server-side. -->
+<div id="gate">
+  <h1>Enter passcode</h1>
+  <input id="passcodeInput" type="password" inputmode="numeric" placeholder="••••" maxlength="12" autocomplete="off">
+  <button class="btn" onclick="submitPasscode()">Unlock</button>
+  <div class="err" id="gateError"></div>
+</div>
+
+<!-- ============== MAIN APP (hidden until unlocked) ============== -->
+<div id="app">
+  <header>
+    <h1>Meet up</h1>
+    <div class="row" id="whoAmIRow"></div>
+  </header>
+
+  <section id="connectSection">
+    <h2>Calendars</h2>
+    <div class="row" id="connectRow"></div>
+  </section>
+
+  <section id="reviewBanner" style="display:none;">
+    <h2>New events to review</h2>
+    <p style="font-size:13px; color:#555; margin:0 0 8px;">
+      Tell us whether these actually keep you busy, or whether you're free to meet anyway.
+    </p>
+    <button class="btn" onclick="openTagModal()">Review now</button>
+  </section>
+
+  <section>
+    <div id="monthNav">
+      <button class="btn" onclick="shiftMonth(-1)">‹</button>
+      <span id="monthLabel"></span>
+      <button class="btn" onclick="shiftMonth(1)">›</button>
+    </div>
+    <table class="grid">
+      <thead><tr><th class="day-label">Day</th><th>Morning</th><th>Afternoon</th><th>Night</th></tr></thead>
+      <tbody id="gridBody"></tbody>
+    </table>
+  </section>
+
+  <section>
+    <h2>QT — booked together</h2>
+    <div id="qtList"></div>
+  </section>
+</div>
+
+<!-- ============== TAGGING MODAL ============== -->
+<div id="tagModal">
+  <div class="card">
+    <h2 style="margin-top:0;">Review your events</h2>
+    <div id="tagList"></div>
+    <div class="row" style="margin-top:12px; justify-content: flex-end;">
+      <button class="btn" onclick="closeTagModal()">Done</button>
+    </div>
+  </div>
+</div>
+
+<script type="module">
+/* =====================================================================
+   CONFIG — fill these in once you've created your Firebase project,
+   Google Cloud OAuth client, and deployed the Cloud Functions below.
+   ===================================================================== */
+const CONFIG = {
+  firebase: {
+    apiKey: "TODO",
+    authDomain: "TODO.firebaseapp.com",
+    projectId: "TODO",
+    // ...rest of your Firebase config object
+  },
+  googleClientId: "TODO.apps.googleusercontent.com",
+  // 2nd-gen Cloud Functions each get their own URL rather than sharing one
+  // base — copy both from the `firebase deploy --only functions` output.
+  functions: {
+    passcodeLoginUrl: "https://TODO-passcodelogin-xxxxx.a.run.app",
+    icloudEventsUrl: "https://TODO-icloudevents-xxxxx.a.run.app",
+  },
+  // The two people using this tool. "id" is what gets stored against events.
+  people: [
+    { id: "tim", label: "Tim" },
+    { id: "siobhan", label: "Siobhan" },
+  ],
+  // Time-of-day buckets. Adjust to taste — these are just a starting point.
+  buckets: [
+    { key: "morning", label: "Morning", startHour: 6, endHour: 12 },
+    { key: "afternoon", label: "Afternoon", startHour: 12, endHour: 18 },
+    { key: "night", label: "Night", startHour: 18, endHour: 23 },
+  ],
+  monthsAhead: 6,
+};
+
+/* =====================================================================
+   FIREBASE SETUP
+   ===================================================================== */
+import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
+import {
+  getAuth, signInWithCustomToken, onAuthStateChanged
+} from "https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js";
+import {
+  getFirestore, doc, getDoc, setDoc, collection, getDocs, writeBatch
+} from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
+
+const fbApp = initializeApp(CONFIG.firebase);
+const auth = getAuth(fbApp);
+const db = getFirestore(fbApp);
+
+/* Who is using the page right now — asked once, remembered locally. */
+function currentPersonId() {
+  let id = localStorage.getItem("meetup-person-id");
+  if (!id) {
+    const choice = prompt(`Who are you? (${CONFIG.people.map(p => p.id).join(" / ")})`);
+    id = CONFIG.people.some(p => p.id === choice) ? choice : CONFIG.people[0].id;
+    localStorage.setItem("meetup-person-id", id);
+  }
+  return id;
+}
+const ME = currentPersonId();
+const OTHER = CONFIG.people.find(p => p.id !== ME).id;
+
+/* =====================================================================
+   PASSCODE GATE
+   The page shows nothing else until this succeeds. The passcode itself
+   is never checked in this file — it's sent to a Cloud Function, which
+   is the only thing that knows the correct hash, and which mints a
+   Firebase custom auth token only if it matches. See functions/index.js.
+   ===================================================================== */
+window.submitPasscode = async function () {
+  const code = document.getElementById("passcodeInput").value.trim();
+  const errEl = document.getElementById("gateError");
+  errEl.textContent = "";
+  if (!code) return;
+  try {
+    const res = await fetch(CONFIG.functions.passcodeLoginUrl, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ passcode: code }),
+    });
+    if (!res.ok) throw new Error("wrong");
+    const { token } = await res.json();
+    await signInWithCustomToken(auth, token);
+  } catch (e) {
+    errEl.textContent = "That passcode isn't right.";
+  }
+};
+
+onAuthStateChanged(auth, (user) => {
+  if (user) {
+    document.getElementById("gate").style.display = "none";
+    document.getElementById("app").style.display = "block";
+    boot();
+  }
+});
+
+/* =====================================================================
+   CALENDAR CONNECT
+   Google: OAuth via Google Identity Services, browser-only, no secret.
+   iCloud: app-specific password, sent to the relay function which
+   speaks CalDAV to caldav.icloud.com on the page's behalf (browsers
+   can't call it directly — no CORS support).
+   ===================================================================== */
+const CONNECTED_KEY = `meetup-connections-${ME}`;
+function getConnections() {
+  return JSON.parse(localStorage.getItem(CONNECTED_KEY) || "[]");
+}
+function saveConnection(conn) {
+  const list = getConnections();
+  list.push(conn);
+  localStorage.setItem(CONNECTED_KEY, JSON.stringify(list));
+  renderConnectRow();
+}
+
+function renderConnectRow() {
+  const row = document.getElementById("connectRow");
+  const conns = getConnections();
+  row.innerHTML = "";
+  conns.forEach(c => {
+    const pill = document.createElement("span");
+    pill.className = "pill connected";
+    pill.textContent = `${c.type === "google" ? "Google" : "iCloud"} ✓`;
+    row.appendChild(pill);
+    if (c.type === "icloud") {
+      const sync = document.createElement("button");
+      sync.className = "btn";
+      sync.textContent = "Sync iCloud";
+      sync.onclick = () => reauthICloud(c.appleId);
+      row.appendChild(sync);
+    }
+  });
+  const addGoogle = document.createElement("button");
+  addGoogle.className = "btn";
+  addGoogle.textContent = "Connect Google";
+  addGoogle.onclick = connectGoogle;
+  row.appendChild(addGoogle);
+
+  const addICloud = document.createElement("button");
+  addICloud.className = "btn";
+  addICloud.textContent = "Connect iCloud";
+  addICloud.onclick = connectICloud;
+  row.appendChild(addICloud);
+}
+
+function connectGoogle() {
+  // Loaded via <script src="https://accounts.google.com/gsi/client"> below.
+  const client = google.accounts.oauth2.initTokenClient({
+    client_id: CONFIG.googleClientId,
+    scope: "https://www.googleapis.com/auth/calendar.readonly",
+    callback: async (resp) => {
+      if (resp.error) return;
+      saveConnection({ type: "google", accessToken: resp.access_token });
+      await syncGoogleEvents(resp.access_token);
+    },
+  });
+  client.requestAccessToken();
+}
+
+async function connectICloud() {
+  const appleId = prompt("Your Apple ID email:");
+  const appPassword = prompt("App-specific password (generate one at appleid.apple.com):");
+  if (!appleId || !appPassword) return;
+  // Only the email is remembered — the password is used for this sync and
+  // then discarded, never written to localStorage or anywhere else.
+  saveConnection({ type: "icloud", appleId });
+  await syncICloudEvents(appleId, appPassword);
+}
+
+async function reauthICloud(appleId) {
+  const appPassword = prompt(`App-specific password for ${appleId}:`);
+  if (!appPassword) return;
+  await syncICloudEvents(appleId, appPassword);
+}
+
+const rangeStart = new Date();
+const rangeEnd = new Date();
+rangeEnd.setMonth(rangeEnd.getMonth() + CONFIG.monthsAhead);
+
+async function syncGoogleEvents(accessToken) {
+  const url = new URL("https://www.googleapis.com/calendar/v3/calendars/primary/events");
+  url.searchParams.set("timeMin", rangeStart.toISOString());
+  url.searchParams.set("timeMax", rangeEnd.toISOString());
+  url.searchParams.set("singleEvents", "true");
+  url.searchParams.set("maxResults", "2500");
+  const res = await fetch(url, { headers: { Authorization: `Bearer ${accessToken}` } });
+  const data = await res.json();
+  const events = (data.items || [])
+    .filter(e => e.start?.dateTime || e.start?.date)
+    .map(e => ({
+      id: e.id,
+      title: e.summary || "(no title)",
+      start: e.start.dateTime || e.start.date,
+      end: e.end.dateTime || e.end.date,
+      recurringEventId: e.recurringEventId || e.id,
+    }));
+  await stagePendingEvents(events);
+}
+
+async function syncICloudEvents(appleId, appPassword) {
+  const res = await fetch(CONFIG.functions.icloudEventsUrl, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      appleId, appPassword,
+      rangeStart: rangeStart.toISOString(),
+      rangeEnd: rangeEnd.toISOString(),
+    }),
+  });
+  const events = await res.json(); // relay normalises to the same shape as above
+  await stagePendingEvents(events);
+}
+
+/* =====================================================================
+   TAGGING
+   Every fetched event is either:
+     - matched to an existing rule (by recurringEventId or title) → auto-tagged
+     - genuinely new → held in "pending" for the person to review once
+   Only the final tag (busy/free) plus title and owner go to Firestore —
+   that's what both of you can see; nothing here is anonymised, since
+   you're both fine seeing each other's titles.
+   ===================================================================== */
+let pendingEvents = [];
+
+async function stagePendingEvents(events) {
+  const rulesSnap = await getDocs(collection(db, `people/${ME}/rules`));
+  const rules = {};
+  rulesSnap.forEach(d => rules[d.id] = d.data().tag);
+
+  const toReview = [];
+  const batch = writeBatch(db);
+  for (const ev of events) {
+    const ruleKey = ev.recurringEventId || ev.title;
+    if (rules[ruleKey]) {
+      batch.set(doc(db, `people/${ME}/events/${ev.id}`), {
+        title: ev.title, start: ev.start, end: ev.end, tag: rules[ruleKey],
+      });
+    } else {
+      toReview.push(ev);
+    }
+  }
+  await batch.commit();
+  pendingEvents = pendingEvents.concat(toReview);
+  document.getElementById("reviewBanner").style.display = toReview.length ? "block" : "none";
+  renderGrid();
+}
+
+window.openTagModal = function () {
+  const list = document.getElementById("tagList");
+  list.innerHTML = "";
+  pendingEvents.forEach((ev, i) => {
+    const row = document.createElement("div");
+    row.className = "tag-item";
+    row.innerHTML = `
+      <div>
+        <div>${ev.title}</div>
+        <div class="meta">${new Date(ev.start).toLocaleString()}</div>
+      </div>
+      <select data-i="${i}">
+        <option value="busy">Busy</option>
+        <option value="free">Actually free</option>
+      </select>
+    `;
+    list.appendChild(row);
+  });
+  document.getElementById("tagModal").style.display = "flex";
+};
+
+window.closeTagModal = async function () {
+  const selects = document.querySelectorAll("#tagList select");
+  const batch = writeBatch(db);
+  selects.forEach(sel => {
+    const ev = pendingEvents[Number(sel.dataset.i)];
+    const tag = sel.value;
+    batch.set(doc(db, `people/${ME}/events/${ev.id}`), {
+      title: ev.title, start: ev.start, end: ev.end, tag,
+    });
+    // Remember this choice so the recurring series (or same-titled event)
+    // never needs asking again.
+    batch.set(doc(db, `people/${ME}/rules/${encodeURIComponent(ev.recurringEventId || ev.title)}`), { tag });
+  });
+  await batch.commit();
+  pendingEvents = [];
+  document.getElementById("tagModal").style.display = "none";
+  document.getElementById("reviewBanner").style.display = "none";
+  renderGrid();
+};
+
+/* =====================================================================
+   GRID — six months rolling, three buckets a day
+   ===================================================================== */
+let viewMonthOffset = 0;
+
+async function loadBusyIntervals(personId) {
+  const snap = await getDocs(collection(db, `people/${personId}/events`));
+  const intervals = [];
+  snap.forEach(d => {
+    const e = d.data();
+    if (e.tag === "busy") intervals.push({ start: new Date(e.start), end: new Date(e.end), title: e.title });
+  });
+  return intervals;
+}
+
+function bucketStatus(day, bucket, myBusy, theirBusy, matches) {
+  const bStart = new Date(day); bStart.setHours(bucket.startHour, 0, 0, 0);
+  const bEnd = new Date(day); bEnd.setHours(bucket.endHour, 0, 0, 0);
+  const overlaps = (iv) => iv.start < bEnd && iv.end > bStart;
+
+  const key = `${day.toISOString().slice(0, 10)}_${bucket.key}`;
+  const match = matches[key];
+  if (match?.status === "qt") return { status: "qt", key };
+  if (myBusy.some(overlaps) || theirBusy.some(overlaps)) return { status: "busy", key };
+  if (match?.[ME]) return { status: "proposed-mine", key };
+  if (match?.[OTHER]) return { status: "proposed-theirs", key };
+  return { status: "free", key };
+}
+
+async function loadMatches() {
+  const snap = await getDocs(collection(db, "matches"));
+  const matches = {};
+  snap.forEach(d => matches[d.id] = d.data());
+  return matches;
+}
+
+async function renderGrid() {
+  const [myBusy, theirBusy, matches] = await Promise.all([
+    loadBusyIntervals(ME), loadBusyIntervals(OTHER), loadMatches(),
+  ]);
+
+  const viewMonth = new Date();
+  viewMonth.setMonth(viewMonth.getMonth() + viewMonthOffset);
+  document.getElementById("monthLabel").textContent =
+    viewMonth.toLocaleString(undefined, { month: "long", year: "numeric" });
+
+  const body = document.getElementById("gridBody");
+  body.innerHTML = "";
+  const daysInMonth = new Date(viewMonth.getFullYear(), viewMonth.getMonth() + 1, 0).getDate();
+
+  for (let d = 1; d <= daysInMonth; d++) {
+    const day = new Date(viewMonth.getFullYear(), viewMonth.getMonth(), d);
+    const tr = document.createElement("tr");
+    const label = document.createElement("td");
+    label.className = "day-label";
+    label.textContent = day.toLocaleDateString(undefined, { weekday: "short", day: "numeric" });
+    tr.appendChild(label);
+
+    CONFIG.buckets.forEach(bucket => {
+      const td = document.createElement("td");
+      const { status, key } = bucketStatus(day, bucket, myBusy, theirBusy, matches);
+      const cellEl = document.createElement("div");
+      cellEl.className = `cell ${status}`;
+      cellEl.textContent = status === "qt" ? "QT" : "";
+      if (status === "free" || status === "proposed-mine") {
+        cellEl.onclick = () => toggleProposal(key);
+      }
+      td.appendChild(cellEl);
+      tr.appendChild(td);
+    });
+    body.appendChild(tr);
+  }
+  renderQtList(matches);
+}
+
+async function toggleProposal(key) {
+  const ref = doc(db, "matches", key);
+  const snap = await getDoc(ref);
+  const data = snap.exists() ? snap.data() : {};
+  const nowMine = !data[ME];
+  const next = { ...data, [ME]: nowMine };
+  next.status = (next[ME] && next[OTHER]) ? "qt" : "proposed";
+  await setDoc(ref, next);
+  renderGrid();
+}
+
+window.shiftMonth = function (delta) {
+  viewMonthOffset += delta;
+  renderGrid();
+};
+
+/* =====================================================================
+   QT LIST + ICS DOWNLOAD
+   ===================================================================== */
+function renderQtList(matches) {
+  const el = document.getElementById("qtList");
+  el.innerHTML = "";
+  const qtEntries = Object.entries(matches).filter(([, v]) => v.status === "qt");
+  if (!qtEntries.length) {
+    el.innerHTML = `<p style="font-size:13px;color:#777;">Nothing booked yet.</p>`;
+    return;
+  }
+  qtEntries.forEach(([key]) => {
+    const [dateStr, bucketKey] = key.split("_");
+    const bucket = CONFIG.buckets.find(b => b.key === bucketKey);
+    const row = document.createElement("div");
+    row.className = "qt-row";
+    row.innerHTML = `
+      <span>${dateStr} — ${bucket.label}</span>
+      <button class="btn">Download</button>
+    `;
+    row.querySelector("button").onclick = () => downloadIcs(dateStr, bucket);
+    el.appendChild(row);
+  });
+}
+
+function downloadIcs(dateStr, bucket) {
+  const day = new Date(dateStr);
+  const start = new Date(day); start.setHours(bucket.startHour, 0, 0, 0);
+  const end = new Date(day); end.setHours(bucket.endHour, 0, 0, 0);
+  const fmt = (d) => d.toISOString().replace(/[-:]/g, "").split(".")[0] + "Z";
+  const ics = [
+    "BEGIN:VCALENDAR", "VERSION:2.0", "BEGIN:VEVENT",
+    `DTSTART:${fmt(start)}`, `DTEND:${fmt(end)}`,
+    "SUMMARY:QT", "END:VEVENT", "END:VCALENDAR",
+  ].join("\r\n");
+  const blob = new Blob([ics], { type: "text/calendar" });
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = `qt-${dateStr}.ics`;
+  a.click();
+}
+
+/* =====================================================================
+   BOOT
+   ===================================================================== */
+function boot() {
+  document.getElementById("whoAmIRow").innerHTML = `<span class="pill">You: ${ME}</span>`;
+  renderConnectRow();
+  renderGrid();
+}
+</script>
+<script src="https://accounts.google.com/gsi/client" async defer></script>
+</body>
+</html>
