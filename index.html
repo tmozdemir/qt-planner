@@ -150,12 +150,15 @@
    Google Cloud OAuth client, and deployed the Cloud Functions below.
    ===================================================================== */
 const CONFIG = {
-  firebase: {
-    apiKey: "TODO",
-    authDomain: "TODO.firebaseapp.com",
-    projectId: "TODO",
-    // ...rest of your Firebase config object
-  },
+  const firebaseConfig = {
+  apiKey: "AIza...",
+  authDomain: "q-time-planner.firebaseapp.com",
+  projectId: "q-time-planner",
+  storageBucket: "...",
+  messagingSenderId: "...",
+  appId: "..."
+};
+
   googleClientId: "TODO.apps.googleusercontent.com",
   // 2nd-gen Cloud Functions each get their own URL rather than sharing one
   // base — copy both from the `firebase deploy --only functions` output.
