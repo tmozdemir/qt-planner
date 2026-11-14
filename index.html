@@ -58,6 +58,15 @@
   #gate .btn { background: linear-gradient(135deg, var(--qt-a), var(--qt-b)); width: min(260px, 82vw); }
   #gate .err { color: #ffb4c6; font-size: 14px; min-height: 20px; max-width: 300px; }
 
+  #who {
+    display: none; position: fixed; inset: 0; z-index: 50; background: var(--night); color: #fff;
+    flex-direction: column; align-items: center; justify-content: center; gap: 14px; padding: 24px; text-align: center;
+  }
+  #who h1 { font-family: var(--display); font-size: 36px; font-weight: 800; margin: 0; letter-spacing: -0.02em; }
+  #who p { margin: 0 0 6px; color: #aab1cf; font-size: 15px; }
+  #whoChoices { display: flex; flex-direction: column; gap: 10px; width: min(260px, 82vw); }
+  #whoChoices .btn { background: linear-gradient(135deg, var(--qt-a), var(--qt-b)); font-size: 17px; padding: 14px; }
+
   /* --- App shell --- */
   #app { display: none; max-width: 760px; margin: 0 auto; padding: 0 14px 48px; }
   .top { display: flex; justify-content: space-between; align-items: center; padding: 20px 2px 12px; }
@@ -230,6 +239,13 @@
   <div class="err" id="gateError" role="status"></div>
 </div>
 
+<!-- ============== WHO ARE YOU (first visit on a device) ============== -->
+<div id="who">
+  <h1>Who's this?</h1>
+  <p>Pick your name. This device will remember it.</p>
+  <div id="whoChoices"></div>
+</div>
+
 <!-- ============== MAIN APP (hidden until unlocked) ============== -->
 <div id="app">
   <div class="top">
@@ -287,6 +303,7 @@
     <h3 id="tagTitle"></h3>
     <p class="sub" id="tagSub"></p>
     <div id="tagList"></div>
+    <button class="linkbtn" type="button" id="tagClear" onclick="clearMyEvents()" style="margin-top:12px;">Remove all my synced events</button>
     <div class="actions">
       <button class="btn ghost" type="button" onclick="closeTagModal()">Not now</button>
       <button class="btn" type="button" id="tagSave" onclick="saveTagChoices()">Save choices</button>
@@ -344,17 +361,30 @@ const fbApp = initializeApp(CONFIG.firebase);
 const auth = getAuth(fbApp);
 const db = getFirestore(fbApp);
 
-/* Who is using the page right now — asked once, remembered locally. */
-function currentPersonId() {
-  let id = localStorage.getItem("meetup-person-id");
-  if (!id) {
-    const choice = prompt(`Who are you? (${CONFIG.people.map(p => p.id).join(" / ")})`);
-    id = CONFIG.people.some(p => p.id === choice) ? choice : CONFIG.people[0].id;
-    localStorage.setItem("meetup-person-id", id);
-  }
+/* Who is using the page right now — chosen once by tapping a name, and
+   remembered on this device. There is no default: nobody becomes someone
+   else by mistyping. */
+async function currentPersonId() {
+  const stored = localStorage.getItem("meetup-person-id");
+  if (CONFIG.people.some(p => p.id === stored)) return stored;
+  const screen = document.getElementById("who");
+  const choices = document.getElementById("whoChoices");
+  screen.style.display = "flex";
+  const id = await new Promise(resolve => {
+    CONFIG.people.forEach(p => {
+      const b = document.createElement("button");
+      b.type = "button";
+      b.className = "btn";
+      b.textContent = `I'm ${p.label}`;
+      b.onclick = () => resolve(p.id);
+      choices.append(b);
+    });
+  });
+  localStorage.setItem("meetup-person-id", id);
+  screen.style.display = "none";
   return id;
 }
-const ME = currentPersonId();
+const ME = await currentPersonId();
 const OTHER = CONFIG.people.find(p => p.id !== ME).id;
 
 /* =====================================================================
@@ -572,7 +602,7 @@ async function syncGoogle(emailHint) {
     } while (pageToken);
   }
 
-  const result = await stageEvents(events);
+  const result = await stageEvents(events, `google:${email}`);
   upsertConnection({ type: "google", email, lastSync: Date.now() });
   return result;
 }
@@ -616,7 +646,7 @@ async function syncICloud(conn, { quiet = false } = {}) {
     if (!appPassword) return null;
   }
   const events = await fetchICloudEvents(conn.appleId, appPassword);
-  const result = await stageEvents(events);
+  const result = await stageEvents(events, `icloud:${conn.appleId}`);
 
   const update = { type: "icloud", appleId: conn.appleId, lastSync: Date.now() };
   // Remembering is opt-in, and only offered once the password has worked.
@@ -667,12 +697,15 @@ let pendingEvents = [];
 async function commitWrites(writes) {
   for (let i = 0; i < writes.length; i += 400) {
     const batch = writeBatch(db);
-    writes.slice(i, i + 400).forEach(([ref, data]) => batch.set(ref, data));
+    // A null value means "delete this document".
+    writes.slice(i, i + 400).forEach(([ref, data]) => (data === null ? batch.delete(ref) : batch.set(ref, data)));
     await batch.commit();
   }
 }
 
-async function stageEvents(events) {
+/* `source` names the calendar account the events came from, so a later sync
+   of the same account can clear out events that no longer exist there. */
+async function stageEvents(events, source) {
   const [rulesSnap, mineSnap] = await Promise.all([
     getDocs(collection(db, `people/${ME}/rules`)),
     getDocs(collection(db, `people/${ME}/events`)),
@@ -680,21 +713,26 @@ async function stageEvents(events) {
   const rules = {};
   rulesSnap.forEach(d => rules[d.id] = d.data().tag);
   const existing = {};
-  mineSnap.forEach(d => existing[d.id] = d.data().tag);
+  mineSnap.forEach(d => existing[d.id] = d.data());
 
   const writes = [];
   const toReview = [];
   for (const ev of events) {
     const id = safeId(ev.id);
-    const tag = existing[id]
+    const tag = existing[id]?.tag
       || rules[titleRule(ev.title)]
       || rules[ruleId(ev.recurringEventId || ev.title)];
     if (tag) {
-      writes.push([doc(db, `people/${ME}/events/${id}`), { title: ev.title, start: ev.start, end: ev.end, tag }]);
+      writes.push([doc(db, `people/${ME}/events/${id}`), { title: ev.title, start: ev.start, end: ev.end, tag, source }]);
     } else {
-      toReview.push({ id, title: ev.title, start: ev.start, end: ev.end });
+      toReview.push({ id, title: ev.title, start: ev.start, end: ev.end, source });
     }
   }
+  // Events this account synced before that it no longer has (deleted or moved).
+  const fetched = new Set(events.map(ev => safeId(ev.id)));
+  Object.entries(existing).forEach(([id, data]) => {
+    if (data.source === source && !fetched.has(id)) writes.push([doc(db, `people/${ME}/events/${id}`), null]);
+  });
   await commitWrites(writes);
 
   const seen = new Set(toReview.map(e => e.id));
@@ -761,6 +799,7 @@ function openChooser({ title, sub, groups, onlyChanged, emptyText }) {
     list.append(row);
   });
   $("tagSave").style.display = groups.length ? "" : "none";
+  $("tagClear").style.display = onlyChanged ? "" : "none";
   $("tagModal").style.display = "flex";
 }
 
@@ -796,6 +835,30 @@ async function openMyEvents() {
   });
 }
 
+/* Start again: removes every event stored under this person (not their
+   calendars, and not their remembered choices). A fresh sync brings back
+   only what's really in their calendars. */
+window.clearMyEvents = async function () {
+  if (!confirm(
+    `Remove every event synced under ${personLabel(ME)}?\n\n` +
+    "Your real calendars aren't touched, and your Busy / Free choices are remembered. " +
+    "Sync your calendars again afterwards to bring your own events back."
+  )) return;
+  try {
+    const snap = await getDocs(collection(db, `people/${ME}/events`));
+    const writes = [];
+    snap.forEach(d => writes.push([doc(db, `people/${ME}/events/${d.id}`), null]));
+    await commitWrites(writes);
+    pendingEvents = [];
+    showReviewBanner();
+    closeTagModal();
+    toast(`Removed ${writes.length} events. Now sync your calendars to bring yours back.`);
+    renderGrid();
+  } catch (e) {
+    toast("Couldn't remove the events. Check your connection and try again.");
+  }
+};
+
 window.closeTagModal = function () {
   $("tagModal").style.display = "none";
   chooser = null;
@@ -813,7 +876,7 @@ window.saveTagChoices = async function () {
     changed++;
     g.events.forEach(ev => writes.push([
       doc(db, `people/${ME}/events/${ev.id}`),
-      { title: ev.title, start: ev.start, end: ev.end, tag },
+      { title: ev.title, start: ev.start, end: ev.end, tag, ...(ev.source ? { source: ev.source } : {}) },
     ]));
     writes.push([doc(db, `people/${ME}/rules/${titleRule(g.title)}`), { tag }]);
   });
