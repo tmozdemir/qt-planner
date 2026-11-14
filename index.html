@@ -22,6 +22,7 @@
     --ask: #ffd166;       --ask-soft: #fff6dc;    --ask-edge: #c98e00;   --ask-ink: #5a3d00;
     --qt-a: #d63f78;      --qt-b: #7d37a8;
 
+    --kid-0: #1f6fd6;     --kid-1: #e0561b;
     --dawn: #f4a259;  --sky: #4aa3e8;  --dusk: #6a5bd6;
 
     --display: "Bricolage Grotesque", "Figtree", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
@@ -180,7 +181,9 @@
 
   .tag-item { display: flex; justify-content: space-between; align-items: center; gap: 10px; padding: 10px 0; border-bottom: 1px solid var(--line); }
   .tag-item .meta { font-size: 13px; color: var(--muted); }
-  .tag-item select { font: inherit; font-size: 14px; padding: 8px; border-radius: 10px; border: 1px solid var(--line); background: #fff; }
+  .tag-text { min-width: 0; }
+  .tag-title { font-weight: 600; overflow-wrap: anywhere; }
+  .tag-item select { flex: none; max-width: 46%; font: inherit; font-size: 14px; padding: 8px; border-radius: 10px; border: 1px solid var(--line); background: #fff; }
 
   #toast {
     position: fixed; left: 50%; bottom: 22px; transform: translate(-50%, 20px); opacity: 0; pointer-events: none;
@@ -193,6 +196,25 @@
     #toast { transition: none; }
     .cell.tap:active { transform: none; }
   }
+
+  /* --- Connected calendars --- */
+  .conn { display: flex; align-items: center; gap: 8px; padding: 8px 0; border-bottom: 1px solid var(--line); }
+  .conn .who { flex: 1; min-width: 0; }
+  .conn .who b { display: block; font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .conn .who small { color: var(--muted); font-size: 12px; }
+  .btn.small { padding: 8px 14px; font-size: 13px; }
+  .btn:disabled { opacity: 0.6; cursor: default; }
+  .linkbtn { background: none; border: 0; padding: 6px 2px; color: var(--muted); text-decoration: underline; font-size: 13px; cursor: pointer; }
+
+  /* --- "Has the kids" badges: one colour and one corner per person --- */
+  .kid {
+    position: absolute; top: -6px; width: 21px; height: 21px; border-radius: 50%;
+    display: grid; place-items: center; border: 2px solid #fff; pointer-events: none;
+  }
+  .kid svg { width: 11px; height: 11px; }
+  .kid-0 { left: -5px; background: var(--kid-0); }
+  .kid-1 { right: -5px; background: var(--kid-1); }
+  .legend .kid { position: static; flex: none; border: 0; width: 18px; height: 18px; }
 </style>
 </head>
 <body>
@@ -223,7 +245,7 @@
 
   <section class="panel" id="reviewBanner" style="display:none;">
     <h2 class="ph">New events to review</h2>
-    <p>Tell us whether these really keep you busy, or whether you could meet anyway.</p>
+    <p id="reviewCount"></p>
     <button class="btn" onclick="openTagModal()">Review events</button>
   </section>
 
@@ -260,13 +282,14 @@
 <div id="toast" role="status" aria-live="polite"></div>
 
 <!-- ============== EVENT REVIEW ============== -->
-<div id="tagModal">
+<div id="tagModal" role="dialog" aria-modal="true" aria-labelledby="tagTitle">
   <div class="card">
-    <h3>Review your events</h3>
-    <p class="sub">Only you see this list. Choose "Actually free" for anything that wouldn't stop you meeting.</p>
+    <h3 id="tagTitle"></h3>
+    <p class="sub" id="tagSub"></p>
     <div id="tagList"></div>
     <div class="actions">
-      <button class="btn" onclick="closeTagModal()">Save choices</button>
+      <button class="btn ghost" type="button" onclick="closeTagModal()">Not now</button>
+      <button class="btn" type="button" id="tagSave" onclick="saveTagChoices()">Save choices</button>
     </div>
   </div>
 </div>
@@ -398,186 +421,421 @@ onAuthStateChanged(auth, (user) => {
    can't call it directly — no CORS support).
    ===================================================================== */
 const CONNECTED_KEY = `meetup-connections-${ME}`;
+const AUTO_SYNC_AFTER_MS = 6 * 60 * 60 * 1000;
+
 function getConnections() {
-  return JSON.parse(localStorage.getItem(CONNECTED_KEY) || "[]");
+  try {
+    const list = JSON.parse(localStorage.getItem(CONNECTED_KEY) || "[]");
+    // Google entries saved by the first version had no account email, so
+    // they can't be told apart or synced again — they're dropped here.
+    return list.filter(c => (c.type === "icloud" ? c.appleId : c.email));
+  } catch (_) { return []; }
 }
-function saveConnection(conn) {
-  const list = getConnections();
-  list.push(conn);
+function saveConnections(list) {
   localStorage.setItem(CONNECTED_KEY, JSON.stringify(list));
   renderConnectRow();
 }
+const connName = (c) => c.email || c.appleId;
+function upsertConnection(conn) {
+  const list = getConnections();
+  const i = list.findIndex(c => c.type === conn.type && connName(c) === connName(conn));
+  if (i >= 0) list[i] = { ...list[i], ...conn }; else list.push(conn);
+  saveConnections(list);
+}
+function forgetConnection(conn) {
+  saveConnections(getConnections().filter(c => !(c.type === conn.type && connName(c) === connName(conn))));
+  toast(`Forgot ${connName(conn)} on this device. Events already synced stay in the planner.`);
+}
 
 function renderConnectRow() {
-  const row = document.getElementById("connectRow");
-  const conns = getConnections();
-  row.innerHTML = "";
-  conns.forEach(c => {
-    const pill = document.createElement("span");
-    pill.className = "pill connected";
-    pill.textContent = `${c.type === "google" ? "Google" : "iCloud"} ✓`;
-    row.appendChild(pill);
-    if (c.type === "icloud") {
-      const sync = document.createElement("button");
-      sync.className = "btn";
-      sync.textContent = "Sync iCloud";
-      sync.onclick = () => reauthICloud(c.appleId);
-      row.appendChild(sync);
-    }
+  const wrap = $("connectRow");
+  wrap.className = "";
+  wrap.replaceChildren();
+
+  getConnections().forEach(c => {
+    const row = el("div", "conn");
+    const who = el("div", "who");
+    who.append(el("b", "", `${c.type === "google" ? "Google" : "iCloud"} · ${connName(c)}`));
+    let status = c.lastSync ? `Synced ${shortDate(new Date(c.lastSync))}, ${fmtClock(new Date(c.lastSync))}` : "Not synced yet";
+    if (c.type === "icloud") status += c.appPassword ? " · password remembered" : "";
+    who.append(el("small", "", status));
+
+    const sync = el("button", "btn small", "Sync");
+    sync.type = "button";
+    sync.onclick = () => runSync(sync, () => (c.type === "google" ? syncGoogle(c.email) : syncICloud(c)));
+    const forget = el("button", "linkbtn", "Forget");
+    forget.type = "button";
+    forget.onclick = () => forgetConnection(c);
+    row.append(who, sync, forget);
+    wrap.append(row);
   });
-  const addGoogle = document.createElement("button");
-  addGoogle.className = "btn";
-  addGoogle.textContent = "Connect Google";
-  addGoogle.onclick = connectGoogle;
-  row.appendChild(addGoogle);
 
-  const addICloud = document.createElement("button");
-  addICloud.className = "btn";
-  addICloud.textContent = "Connect iCloud";
-  addICloud.onclick = connectICloud;
-  row.appendChild(addICloud);
+  const buttons = el("div", "row");
+  buttons.style.marginTop = "12px";
+  const addGoogle = el("button", "btn", "Add Google");
+  addGoogle.type = "button";
+  addGoogle.onclick = () => runSync(addGoogle, () => syncGoogle());
+  const addICloud = el("button", "btn", "Add iCloud");
+  addICloud.type = "button";
+  addICloud.onclick = () => runSync(addICloud, () => connectICloud());
+  const mine = el("button", "btn ghost", "My events");
+  mine.type = "button";
+  mine.onclick = openMyEvents;
+  buttons.append(addGoogle, addICloud, mine);
+  wrap.append(buttons);
 }
 
-function connectGoogle() {
-  // Loaded via <script src="https://accounts.google.com/gsi/client"> below.
-  const client = google.accounts.oauth2.initTokenClient({
-    client_id: CONFIG.googleClientId,
-    scope: "https://www.googleapis.com/auth/calendar.readonly",
-    callback: async (resp) => {
-      if (resp.error) return;
-      saveConnection({ type: "google", accessToken: resp.access_token });
-      await syncGoogleEvents(resp.access_token);
-    },
-  });
-  client.requestAccessToken();
+/* Runs one sync, shows progress on the button, and reports the outcome. */
+async function runSync(button, job) {
+  const label = button.textContent;
+  button.disabled = true;
+  button.textContent = "Syncing…";
+  try {
+    const result = await job();
+    if (result) toast(syncSummary(result));
+  } catch (e) {
+    toast(`Sync didn't work: ${e.message}`);
+  }
+  // renderConnectRow may already have replaced this button; harmless if so.
+  button.disabled = false;
+  button.textContent = label;
 }
-
-async function connectICloud() {
-  const appleId = prompt("Your Apple ID email:");
-  const appPassword = prompt("App-specific password (generate one at appleid.apple.com):");
-  if (!appleId || !appPassword) return;
-  // Only the email is remembered — the password is used for this sync and
-  // then discarded, never written to localStorage or anywhere else.
-  saveConnection({ type: "icloud", appleId });
-  await syncICloudEvents(appleId, appPassword);
-}
-
-async function reauthICloud(appleId) {
-  const appPassword = prompt(`App-specific password for ${appleId}:`);
-  if (!appPassword) return;
-  await syncICloudEvents(appleId, appPassword);
+function syncSummary({ total, review }) {
+  if (!total) return "Synced. No events found in the next six months.";
+  if (review) return `Synced ${total} events. ${review} new ${review === 1 ? "one needs" : "ones need"} a choice — see "New events to review".`;
+  return `Synced ${total} events. Nothing new to review.`;
 }
 
 const rangeStart = new Date();
 const rangeEnd = new Date();
 rangeEnd.setMonth(rangeEnd.getMonth() + CONFIG.monthsAhead);
 
-async function syncGoogleEvents(accessToken) {
-  const url = new URL("https://www.googleapis.com/calendar/v3/calendars/primary/events");
-  url.searchParams.set("timeMin", rangeStart.toISOString());
-  url.searchParams.set("timeMax", rangeEnd.toISOString());
-  url.searchParams.set("singleEvents", "true");
-  url.searchParams.set("maxResults", "2500");
-  const res = await fetch(url, { headers: { Authorization: `Bearer ${accessToken}` } });
-  const data = await res.json();
-  const events = (data.items || [])
-    .filter(e => e.start?.dateTime || e.start?.date)
-    .map(e => ({
-      id: e.id,
-      title: e.summary || "(no title)",
-      start: e.start.dateTime || e.start.date,
-      end: e.end.dateTime || e.end.date,
-      recurringEventId: e.recurringEventId || e.id,
-    }));
-  await stagePendingEvents(events);
+/* --- Google --- */
+function googleToken(emailHint) {
+  return new Promise((resolve, reject) => {
+    if (!window.google?.accounts?.oauth2) {
+      reject(new Error("Google sign-in hasn't loaded yet. Wait a moment and try again."));
+      return;
+    }
+    const client = google.accounts.oauth2.initTokenClient({
+      client_id: CONFIG.googleClientId,
+      scope: "https://www.googleapis.com/auth/calendar.readonly",
+      // A known account re-syncs without the account chooser where Google allows it.
+      login_hint: emailHint || undefined,
+      prompt: emailHint ? "" : "select_account",
+      callback: (resp) => (resp.error ? reject(new Error(resp.error)) : resolve(resp.access_token)),
+      error_callback: (err) => reject(new Error(err?.type === "popup_closed" ? "the Google window was closed" : (err?.type || "Google sign-in failed"))),
+    });
+    client.requestAccessToken();
+  });
 }
 
-async function syncICloudEvents(appleId, appPassword) {
-  const res = await fetch(CONFIG.functions.icloudEventsUrl, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      appleId, appPassword,
-      rangeStart: rangeStart.toISOString(),
-      rangeEnd: rangeEnd.toISOString(),
-    }),
-  });
-  const events = await res.json(); // relay normalises to the same shape as above
-  await stagePendingEvents(events);
+async function googleGet(url, token) {
+  const res = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
+  if (!res.ok) throw new Error(`Google Calendar returned an error (${res.status})`);
+  return res.json();
+}
+
+async function syncGoogle(emailHint) {
+  const token = await googleToken(emailHint);
+  const base = "https://www.googleapis.com/calendar/v3";
+  const primary = await googleGet(`${base}/calendars/primary`, token);
+  const email = primary.id || emailHint || "account";
+
+  // Every calendar ticked in this Google account — not just the main one —
+  // so shared calendars (a family or co-parenting calendar) come through too.
+  const list = await googleGet(`${base}/users/me/calendarList?maxResults=250`, token);
+  const calendars = (list.items || []).filter(c =>
+    c.selected !== false && !/#(holiday|contacts|weather)@/.test(c.id));
+
+  const events = [];
+  for (const cal of calendars) {
+    let pageToken = "";
+    do {
+      const url = new URL(`${base}/calendars/${encodeURIComponent(cal.id)}/events`);
+      url.searchParams.set("timeMin", rangeStart.toISOString());
+      url.searchParams.set("timeMax", rangeEnd.toISOString());
+      url.searchParams.set("singleEvents", "true");
+      url.searchParams.set("maxResults", "2500");
+      if (pageToken) url.searchParams.set("pageToken", pageToken);
+      const data = await googleGet(url, token);
+      (data.items || [])
+        .filter(e => e.status !== "cancelled" && (e.start?.dateTime || e.start?.date))
+        .forEach(e => events.push({
+          id: e.id,
+          title: e.summary || "(no title)",
+          start: e.start.dateTime || e.start.date,
+          end: e.end?.dateTime || e.end?.date || e.start.dateTime || e.start.date,
+          recurringEventId: e.recurringEventId || e.id,
+        }));
+      pageToken = data.nextPageToken || "";
+    } while (pageToken);
+  }
+
+  const result = await stageEvents(events);
+  upsertConnection({ type: "google", email, lastSync: Date.now() });
+  return result;
+}
+
+/* --- iCloud --- */
+async function fetchICloudEvents(appleId, appPassword) {
+  let res;
+  try {
+    res = await fetch(CONFIG.functions.icloudEventsUrl, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        appleId, appPassword,
+        rangeStart: rangeStart.toISOString(),
+        rangeEnd: rangeEnd.toISOString(),
+      }),
+    });
+  } catch (e) {
+    throw new Error("couldn't reach the server");
+  }
+  let body = null;
+  try { body = await res.json(); } catch (_) {}
+  if (!res.ok || !Array.isArray(body)) {
+    throw new Error(body?.error || `the server returned an error (${res.status})`);
+  }
+  return body; // relay normalises to the same shape as the Google events
+}
+
+async function connectICloud() {
+  const appleId = (prompt("Your Apple ID email:") || "").trim();
+  if (!appleId) return null;
+  return syncICloud({ type: "icloud", appleId });
+}
+
+async function syncICloud(conn, { quiet = false } = {}) {
+  let appPassword = conn.appPassword;
+  const typed = !appPassword;
+  if (typed) {
+    if (quiet) return null;
+    appPassword = (prompt(`App-specific password for ${conn.appleId} (create one at account.apple.com):`) || "").trim();
+    if (!appPassword) return null;
+  }
+  const events = await fetchICloudEvents(conn.appleId, appPassword);
+  const result = await stageEvents(events);
+
+  const update = { type: "icloud", appleId: conn.appleId, lastSync: Date.now() };
+  // Remembering is opt-in, and only offered once the password has worked.
+  if (typed && confirm(
+    "Remember this app password on this device?\n\n" +
+    "Syncing then happens by itself when you open the planner. The password is kept " +
+    "only in this browser, and you can remove it any time with Forget."
+  )) update.appPassword = appPassword;
+  upsertConnection(update);
+  return result;
+}
+
+/* Remembered iCloud accounts refresh by themselves when the page opens. */
+async function autoSync() {
+  const due = getConnections().filter(c =>
+    c.type === "icloud" && c.appPassword && Date.now() - (c.lastSync || 0) > AUTO_SYNC_AFTER_MS);
+  for (const c of due) {
+    try {
+      const result = await syncICloud(c, { quiet: true });
+      if (result?.review) toast(syncSummary(result));
+    } catch (e) {
+      toast(`Couldn't sync ${c.appleId}: ${e.message}`);
+    }
+  }
 }
 
 /* =====================================================================
-   TAGGING
-   Every fetched event is either:
-     - matched to an existing rule (by recurringEventId or title) → auto-tagged
-     - genuinely new → held in "pending" for the person to review once
-   Only the final tag (busy/free) plus title and owner go to Firestore —
-   that's what both of you can see; nothing here is anonymised, since
-   you're both fine seeing each other's titles.
+   EVENT CHOICES
+   Each synced event carries one choice:
+     busy  — blocks the slot
+     free  — ignored
+     kids  — doesn't block, but the slot shows that person has their kids
+   A choice is made once per event title and remembered as a rule, so
+   repeats and future events with the same title follow it. Events that
+   already have a choice keep it on every later sync.
    ===================================================================== */
+const CHOICES = [
+  ["busy", "Busy"],
+  ["free", "Actually free"],
+  ["kids", "Free, kids with me"],
+];
+const safeId = (id) => String(id).replace(/\//g, "_");
+const ruleId = (key) => encodeURIComponent(String(key)).replace(/\./g, "%2E").slice(0, 900);
+const titleRule = (title) => ruleId("title:" + title);
+
 let pendingEvents = [];
 
-async function stagePendingEvents(events) {
-  const rulesSnap = await getDocs(collection(db, `people/${ME}/rules`));
+async function commitWrites(writes) {
+  for (let i = 0; i < writes.length; i += 400) {
+    const batch = writeBatch(db);
+    writes.slice(i, i + 400).forEach(([ref, data]) => batch.set(ref, data));
+    await batch.commit();
+  }
+}
+
+async function stageEvents(events) {
+  const [rulesSnap, mineSnap] = await Promise.all([
+    getDocs(collection(db, `people/${ME}/rules`)),
+    getDocs(collection(db, `people/${ME}/events`)),
+  ]);
   const rules = {};
   rulesSnap.forEach(d => rules[d.id] = d.data().tag);
+  const existing = {};
+  mineSnap.forEach(d => existing[d.id] = d.data().tag);
 
+  const writes = [];
   const toReview = [];
-  const batch = writeBatch(db);
   for (const ev of events) {
-    const ruleKey = ev.recurringEventId || ev.title;
-    if (rules[ruleKey]) {
-      batch.set(doc(db, `people/${ME}/events/${ev.id}`), {
-        title: ev.title, start: ev.start, end: ev.end, tag: rules[ruleKey],
-      });
+    const id = safeId(ev.id);
+    const tag = existing[id]
+      || rules[titleRule(ev.title)]
+      || rules[ruleId(ev.recurringEventId || ev.title)];
+    if (tag) {
+      writes.push([doc(db, `people/${ME}/events/${id}`), { title: ev.title, start: ev.start, end: ev.end, tag }]);
     } else {
-      toReview.push(ev);
+      toReview.push({ id, title: ev.title, start: ev.start, end: ev.end });
     }
   }
-  await batch.commit();
-  pendingEvents = pendingEvents.concat(toReview);
-  document.getElementById("reviewBanner").style.display = toReview.length ? "block" : "none";
-  renderGrid();
+  await commitWrites(writes);
+
+  const seen = new Set(toReview.map(e => e.id));
+  pendingEvents = pendingEvents.filter(e => !seen.has(e.id)).concat(toReview);
+  showReviewBanner();
+  await renderGrid();
+  return { total: events.length, review: groupByTitle(toReview).length };
+}
+
+function showReviewBanner() {
+  const n = groupByTitle(pendingEvents).length;
+  $("reviewBanner").style.display = n ? "block" : "none";
+  $("reviewCount").textContent = n === 1
+    ? "1 new event needs a choice: does it keep you busy, or could you meet anyway?"
+    : `${n} new events need a choice: do they keep you busy, or could you meet anyway?`;
+}
+
+function groupByTitle(events) {
+  const groups = new Map();
+  events.forEach(ev => {
+    const title = ev.title || "(no title)";
+    if (!groups.has(title)) groups.set(title, { title, events: [] });
+    groups.get(title).events.push(ev);
+  });
+  const list = [...groups.values()];
+  list.forEach(g => {
+    g.events.sort((a, b) => new Date(a.start) - new Date(b.start));
+    // The group's current choice is the one on its next occurrence.
+    g.tag = g.events[0].tag || "busy";
+  });
+  return list.sort((a, b) => new Date(a.events[0].start) - new Date(b.events[0].start));
+}
+
+/* One chooser serves both jobs: first-time review, and changing choices later. */
+let chooser = null;
+
+function openChooser({ title, sub, groups, onlyChanged, emptyText }) {
+  chooser = { groups, onlyChanged };
+  $("tagTitle").textContent = title;
+  $("tagSub").textContent = sub;
+  const list = $("tagList");
+  list.replaceChildren();
+  if (!groups.length) list.append(el("p", "empty", emptyText));
+
+  groups.forEach((g, i) => {
+    const row = el("div", "tag-item");
+    const left = el("div", "tag-text");
+    const first = new Date(g.events[0].start);
+    left.append(
+      el("div", "tag-title", g.title),
+      el("div", "meta", `${shortDate(first)}, ${fmtClock(first)}` +
+        (g.events.length > 1 ? ` · and ${g.events.length - 1} more` : ""))
+    );
+    const select = document.createElement("select");
+    select.dataset.i = String(i);
+    select.setAttribute("aria-label", `Choice for ${g.title}`);
+    CHOICES.forEach(([value, label]) => {
+      const o = document.createElement("option");
+      o.value = value; o.textContent = label;
+      select.append(o);
+    });
+    select.value = g.tag;
+    row.append(left, select);
+    list.append(row);
+  });
+  $("tagSave").style.display = groups.length ? "" : "none";
+  $("tagModal").style.display = "flex";
 }
 
 window.openTagModal = function () {
-  const list = document.getElementById("tagList");
-  list.innerHTML = "";
-  pendingEvents.forEach((ev, i) => {
-    const row = document.createElement("div");
-    row.className = "tag-item";
-    row.innerHTML = `
-      <div>
-        <div>${ev.title}</div>
-        <div class="meta">${new Date(ev.start).toLocaleString()}</div>
-      </div>
-      <select data-i="${i}">
-        <option value="busy">Busy</option>
-        <option value="free">Actually free</option>
-      </select>
-    `;
-    list.appendChild(row);
+  openChooser({
+    title: "Review new events",
+    sub: "Only you see this list. One choice covers every event with the same name, now and in future.",
+    groups: groupByTitle(pendingEvents),
+    onlyChanged: false,
+    emptyText: "Nothing new to review.",
   });
-  document.getElementById("tagModal").style.display = "flex";
 };
 
-window.closeTagModal = async function () {
-  const selects = document.querySelectorAll("#tagList select");
-  const batch = writeBatch(db);
-  selects.forEach(sel => {
-    const ev = pendingEvents[Number(sel.dataset.i)];
-    const tag = sel.value;
-    batch.set(doc(db, `people/${ME}/events/${ev.id}`), {
-      title: ev.title, start: ev.start, end: ev.end, tag,
+async function openMyEvents() {
+  let mine = [];
+  try {
+    const snap = await getDocs(collection(db, `people/${ME}/events`));
+    const now = new Date();
+    snap.forEach(d => {
+      const e = d.data();
+      if (new Date(e.end) > now) mine.push({ id: d.id, ...e });
     });
-    // Remember this choice so the recurring series (or same-titled event)
-    // never needs asking again.
-    batch.set(doc(db, `people/${ME}/rules/${encodeURIComponent(ev.recurringEventId || ev.title)}`), { tag });
+  } catch (e) {
+    toast("Couldn't load your events. Check your connection and try again.");
+    return;
+  }
+  openChooser({
+    title: "My events",
+    sub: "Change what any event means for meeting up. One choice covers every event with the same name.",
+    groups: groupByTitle(mine),
+    onlyChanged: true,
+    emptyText: "No upcoming events yet. Add a calendar and sync it first.",
   });
-  await batch.commit();
-  pendingEvents = [];
-  document.getElementById("tagModal").style.display = "none";
-  document.getElementById("reviewBanner").style.display = "none";
+}
+
+window.closeTagModal = function () {
+  $("tagModal").style.display = "none";
+  chooser = null;
+};
+
+window.saveTagChoices = async function () {
+  if (!chooser) return;
+  const { groups, onlyChanged } = chooser;
+  const writes = [];
+  let changed = 0;
+  document.querySelectorAll("#tagList select").forEach(sel => {
+    const g = groups[Number(sel.dataset.i)];
+    const tag = sel.value;
+    if (onlyChanged && tag === g.tag && g.events.every(ev => (ev.tag || "busy") === tag)) return;
+    changed++;
+    g.events.forEach(ev => writes.push([
+      doc(db, `people/${ME}/events/${ev.id}`),
+      { title: ev.title, start: ev.start, end: ev.end, tag },
+    ]));
+    writes.push([doc(db, `people/${ME}/rules/${titleRule(g.title)}`), { tag }]);
+  });
+
+  const saveBtn = $("tagSave");
+  saveBtn.disabled = true;
+  try {
+    await commitWrites(writes);
+  } catch (e) {
+    saveBtn.disabled = false;
+    toast("Couldn't save your choices. Check your connection and try again.");
+    return;
+  }
+  saveBtn.disabled = false;
+
+  if (!onlyChanged) {
+    const done = new Set(groups.flatMap(g => g.events.map(ev => ev.id)));
+    pendingEvents = pendingEvents.filter(ev => !done.has(ev.id));
+    showReviewBanner();
+  }
+  closeTagModal();
+  toast(changed ? `Saved ${changed} ${changed === 1 ? "choice" : "choices"}.` : "Nothing changed.");
   renderGrid();
 };
 
@@ -641,8 +899,8 @@ async function loadBusyIntervals(personId) {
   const intervals = [];
   snap.forEach(d => {
     const e = d.data();
-    if (e.tag === "busy") {
-      intervals.push({ start: new Date(e.start), end: new Date(e.end), title: e.title, owner: personId });
+    if (e.tag === "busy" || e.tag === "kids") {
+      intervals.push({ start: new Date(e.start), end: new Date(e.end), title: e.title, owner: personId, tag: e.tag });
     }
   });
   return intervals;
@@ -655,12 +913,14 @@ async function loadMatches() {
   return matches;
 }
 
-function bucketInfo(day, bucket, busy, matches, now) {
+function bucketInfo(day, bucket, busy, matches, now, kids = []) {
   const bStart = new Date(day); bStart.setHours(bucket.startHour, 0, 0, 0);
   const bEnd = new Date(day); bEnd.setHours(bucket.endHour, 0, 0, 0);
   const key = `${dateKey(day)}_${bucket.key}`;
   const match = matches[key];
-  const blockers = busy.filter(iv => iv.start < bEnd && iv.end > bStart);
+  const overlaps = (iv) => iv.start < bEnd && iv.end > bStart;
+  const blockers = busy.filter(overlaps);
+  const kidOwners = [...new Set(kids.filter(overlaps).map(iv => iv.owner))];
 
   let status;
   if (bEnd <= now) status = "past";
@@ -669,7 +929,7 @@ function bucketInfo(day, bucket, busy, matches, now) {
   else if (match?.[ME]) status = "ask-mine";
   else if (match?.[OTHER]) status = "ask-theirs";
   else status = "free";
-  return { status, key, blockers, bStart, bEnd };
+  return { status, key, blockers, kidOwners, bStart, bEnd };
 }
 
 function renderHead() {
@@ -719,14 +979,37 @@ function makeCell(info, day, bucket) {
     b.disabled = true;
     b.setAttribute("aria-label", `${when}: already passed.`);
   }
+  if (info.status !== "past" && info.kidOwners.length) {
+    info.kidOwners.forEach(owner => b.append(kidBadge(owner)));
+    b.setAttribute("aria-label", b.getAttribute("aria-label") + " " +
+      info.kidOwners.map(o => `${personLabel(o)} has the kids.`).join(" "));
+  }
   return b;
+}
+
+const KID_SVG = '<svg viewBox="0 0 12 12" aria-hidden="true"><circle cx="6" cy="3.6" r="2.4" fill="#fff"/><path d="M1.8 11.4c0-2.6 1.9-4.2 4.2-4.2s4.2 1.6 4.2 4.2z" fill="#fff"/></svg>';
+function kidBadge(owner) {
+  const badge = el("span", `kid kid-${Math.max(0, CONFIG.people.findIndex(p => p.id === owner))}`);
+  badge.innerHTML = KID_SVG;
+  return badge;
+}
+function renderKidsLegend() {
+  const legend = document.querySelector(".legend");
+  legend.querySelectorAll(".kids-key").forEach(n => n.remove());
+  CONFIG.people.forEach(p => {
+    const item = el("span", "kids-key");
+    item.append(kidBadge(p.id), document.createTextNode(`${p.label} has the kids`));
+    legend.append(item);
+  });
 }
 
 async function renderGrid() {
   const [myBusy, theirBusy, matches] = await Promise.all([
     loadBusyIntervals(ME), loadBusyIntervals(OTHER), loadMatches(),
   ]);
-  const busy = myBusy.concat(theirBusy);
+  const all = myBusy.concat(theirBusy);
+  const busy = all.filter(iv => iv.tag === "busy");
+  const kids = all.filter(iv => iv.tag === "kids");
   const now = new Date();
 
   renderHead();
@@ -749,7 +1032,7 @@ async function renderGrid() {
     row.dataset.date = key;
     if (dow === 1 && body.children.length) row.classList.add("mon");
 
-    const infos = CONFIG.buckets.map(bucket => bucketInfo(day, bucket, busy, matches, now));
+    const infos = CONFIG.buckets.map(bucket => bucketInfo(day, bucket, busy, matches, now, kids));
     if (infos.every(i => i.status === "past")) continue; // days already gone aren't shown
 
     const chip = el("div", "dchip");
@@ -939,7 +1222,9 @@ function boot() {
   sw.onclick = () => { localStorage.removeItem("meetup-person-id"); location.reload(); };
   who.append(el("span", "av", initialOf(ME)), el("span", "", personLabel(ME)), sw);
   renderConnectRow();
-  renderGrid();
+  renderKidsLegend();
+  showReviewBanner();
+  renderGrid().then(autoSync);
 }
 </script>
 <script src="https://accounts.google.com/gsi/client" async defer></script>
