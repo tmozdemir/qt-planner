@@ -159,12 +159,12 @@ const CONFIG = {
   appId: "..."
 };
 
-  googleClientId: "TODO.apps.googleusercontent.com",
+  googleClientId: "https://console.cloud.google.com/auth/clients/585728871377-saqvnefavu9skpcftris5uhu85tu0ou3.apps.googleusercontent.com?project=q-time-planner",
   // 2nd-gen Cloud Functions each get their own URL rather than sharing one
   // base — copy both from the `firebase deploy --only functions` output.
   functions: {
-    passcodeLoginUrl: "https://TODO-passcodelogin-xxxxx.a.run.app",
-    icloudEventsUrl: "https://TODO-icloudevents-xxxxx.a.run.app",
+    passcodeLoginUrl: "https://us-central1-q-time-planner.cloudfunctions.net/passcodeLogin",
+    icloudEventsUrl: "https://us-central1-q-time-planner.cloudfunctions.net/icloudEvents",
   },
   // The two people using this tool. "id" is what gets stored against events.
   people: [
