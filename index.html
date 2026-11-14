@@ -219,17 +219,39 @@ window.submitPasscode = async function () {
   const errEl = document.getElementById("gateError");
   errEl.textContent = "";
   if (!code) return;
+  errEl.textContent = "Checking…";
+  let res;
   try {
-    const res = await fetch(CONFIG.functions.passcodeLoginUrl, {
+    res = await fetch(CONFIG.functions.passcodeLoginUrl, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ passcode: code }),
     });
-    if (!res.ok) throw new Error("wrong");
+  } catch (e) {
+    // The request never completed — usually a CORS/origin mismatch or no connection.
+    errEl.textContent = "Couldn't reach the server (network or CORS problem): " + e.message;
+    return;
+  }
+  if (res.status === 401) {
+    errEl.textContent = "That passcode isn't right.";
+    return;
+  }
+  if (res.status === 429) {
+    errEl.textContent = "Too many attempts — try again later.";
+    return;
+  }
+  if (!res.ok) {
+    let detail = "";
+    try { detail = " " + (await res.text()).slice(0, 120); } catch (_) {}
+    errEl.textContent = "Server error " + res.status + "." + detail;
+    return;
+  }
+  try {
     const { token } = await res.json();
     await signInWithCustomToken(auth, token);
+    errEl.textContent = "";
   } catch (e) {
-    errEl.textContent = "That passcode isn't right.";
+    errEl.textContent = "Passcode accepted, but sign-in failed: " + (e.code || e.message);
   }
 };
 
