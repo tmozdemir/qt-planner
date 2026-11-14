@@ -4,84 +4,195 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <meta name="robots" content="noindex, nofollow">
+<meta name="theme-color" content="#1d2540">
 <title>Meet up</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,700;12..96,800&family=Figtree:wght@400;500;600;700&display=swap" rel="stylesheet">
 <style>
   :root {
-    --ink: #23241f;
-    --paper: #f7f5ef;
-    --line: #d8d4c6;
-    --free: #eef1e6;
-    --free-strong: #b9c99a;
-    --busy: #ece7e0;
-    --busy-strong: #cfc6b8;
-    --proposed: #f3e2b8;
-    --proposed-strong: #d9b34f;
-    --qt: #e3ccd9;
-    --qt-strong: #a85d8c;
-    --accent: #7a5c3e;
-    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+    --night: #1d2540;
+    --page: #eceef6;
+    --card: #ffffff;
+    --line: #d9dcea;
+    --muted: #5d647d;
+
+    --free: #cdf2e1;      --free-edge: #1c8c63;   --free-ink: #0f5c40;
+    --busy-a: #dfe2ec;    --busy-b: #d0d4e2;      --busy-ink: #5d647d;
+    --ask: #ffd166;       --ask-soft: #fff6dc;    --ask-edge: #c98e00;   --ask-ink: #5a3d00;
+    --qt-a: #d63f78;      --qt-b: #7d37a8;
+
+    --dawn: #f4a259;  --sky: #4aa3e8;  --dusk: #6a5bd6;
+
+    --display: "Bricolage Grotesque", "Figtree", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    font-family: "Figtree", -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
   }
   * { box-sizing: border-box; }
-  body { margin: 0; background: var(--paper); color: var(--ink); }
+  body { margin: 0; background: var(--page); color: var(--night); -webkit-font-smoothing: antialiased; }
+  button { font: inherit; }
+
+  /* --- Buttons --- */
+  .btn {
+    font-weight: 600; font-size: 15px; padding: 11px 18px; border-radius: 12px; border: 0;
+    background: var(--night); color: #fff; cursor: pointer; -webkit-tap-highlight-color: transparent;
+  }
+  .btn:focus-visible { outline: 3px solid var(--sky); outline-offset: 2px; }
+  .btn.ghost { background: transparent; color: var(--night); box-shadow: inset 0 0 0 1.5px var(--line); }
+  .btn.qt { background: linear-gradient(135deg, var(--qt-a), var(--qt-b)); }
 
   /* --- Passcode gate --- */
   #gate {
     min-height: 100vh; display: flex; align-items: center; justify-content: center;
-    flex-direction: column; gap: 14px; padding: 24px;
+    flex-direction: column; gap: 14px; padding: 24px; text-align: center;
+    background: var(--night); color: #fff;
   }
-  #gate h1 { font-size: 20px; font-weight: 600; margin: 0; }
+  #gate h1 { font-family: var(--display); font-size: 36px; font-weight: 800; margin: 0; letter-spacing: -0.02em; }
+  #gate p { margin: 0 0 6px; color: #aab1cf; font-size: 15px; }
   #gate input {
-    font-size: 18px; padding: 12px 14px; border: 1px solid var(--line);
-    border-radius: 8px; width: 220px; text-align: center; letter-spacing: 2px;
+    font: inherit; font-size: 18px; padding: 14px 16px; border: 1px solid #3a4470; background: #262f55;
+    color: #fff; border-radius: 12px; width: min(260px, 82vw); text-align: center; letter-spacing: 0.12em;
   }
-  #gate button, .btn {
-    font-size: 15px; padding: 10px 18px; border-radius: 8px; border: none;
-    background: var(--accent); color: white; cursor: pointer;
-  }
-  #gate .err { color: #a13a3a; font-size: 13px; min-height: 16px; }
+  #gate input::placeholder { color: #7c86ad; letter-spacing: 0; }
+  #gate input:focus-visible { outline: 2px solid var(--qt-a); outline-offset: 2px; }
+  #gate .btn { background: linear-gradient(135deg, var(--qt-a), var(--qt-b)); width: min(260px, 82vw); }
+  #gate .err { color: #ffb4c6; font-size: 14px; min-height: 20px; max-width: 300px; }
 
   /* --- App shell --- */
-  #app { display: none; max-width: 720px; margin: 0 auto; padding: 16px; }
-  header { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 12px; }
-  header h1 { font-size: 18px; margin: 0; }
-  section { background: white; border: 1px solid var(--line); border-radius: 12px; padding: 14px; margin-bottom: 14px; }
-  section h2 { font-size: 14px; text-transform: none; margin: 0 0 8px; color: #555; }
+  #app { display: none; max-width: 760px; margin: 0 auto; padding: 0 14px 48px; }
+  .top { display: flex; justify-content: space-between; align-items: center; padding: 20px 2px 12px; }
+  .top h1 { font-family: var(--display); font-size: 28px; font-weight: 800; letter-spacing: -0.02em; margin: 0; }
+  .you { display: inline-flex; align-items: center; gap: 8px; font-size: 14px; color: var(--muted); }
+  .you .av {
+    width: 30px; height: 30px; border-radius: 50%; background: var(--night); color: #fff;
+    display: grid; place-items: center; font-family: var(--display); font-weight: 700; font-size: 14px;
+  }
+  .you button { background: none; border: 0; padding: 4px; color: var(--muted); text-decoration: underline; cursor: pointer; font-size: 13px; }
+
+  .panel { background: var(--card); border: 1px solid var(--line); border-radius: 18px; padding: 14px; margin-bottom: 12px; }
+  .panel h2.ph { font-size: 15px; font-weight: 700; margin: 0 0 10px; }
   .row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
-  .pill { font-size: 12px; padding: 4px 10px; border-radius: 999px; border: 1px solid var(--line); }
-  .pill.connected { background: var(--free); border-color: var(--free-strong); }
+  .pill { font-size: 13px; font-weight: 600; padding: 6px 12px; border-radius: 999px; border: 1px solid var(--line); background: #fff; }
+  .pill.connected { background: var(--free); border-color: var(--free-edge); color: var(--free-ink); }
+
+  /* --- "Next up" strip --- */
+  .next {
+    display: block; width: 100%; text-align: left; border: 0; border-radius: 18px; padding: 16px 18px 21px;
+    margin-bottom: 12px; background: var(--night); color: #fff; cursor: pointer; position: relative;
+    overflow: hidden; -webkit-tap-highlight-color: transparent;
+  }
+  .next[hidden] { display: none; }
+  .next::after {
+    content: ""; position: absolute; left: 0; right: 0; bottom: 0; height: 5px;
+    background: linear-gradient(90deg, var(--dawn), var(--sky) 55%, var(--dusk));
+  }
+  .next:focus-visible { outline: 3px solid var(--sky); outline-offset: 2px; }
+  .next-label { display: block; font-size: 14px; color: #b8c0e0; }
+  .next.alert .next-label { color: var(--ask); }
+  .next-when { display: block; font-family: var(--display); font-size: 28px; font-weight: 800; letter-spacing: -0.02em; margin-top: 4px; line-height: 1.1; }
+  .next-sub { display: block; font-size: 14px; color: #b8c0e0; margin-top: 6px; }
+
+  /* --- Review banner --- */
+  #reviewBanner { background: var(--ask-soft); border-color: var(--ask-edge); }
+  #reviewBanner p { font-size: 14px; color: var(--ask-ink); margin: 0 0 10px; }
+
+  /* --- Month nav + legend --- */
+  .monthnav { display: flex; align-items: center; justify-content: space-between; margin: 2px 0 10px; }
+  .monthnav h2 { font-family: var(--display); font-size: 24px; font-weight: 700; margin: 0; letter-spacing: -0.01em; }
+  .round {
+    width: 42px; height: 42px; border-radius: 50%; border: 1px solid var(--line); background: #fff;
+    font-size: 20px; line-height: 1; cursor: pointer; color: var(--night); -webkit-tap-highlight-color: transparent;
+  }
+  .round:disabled { opacity: 0.3; cursor: default; }
+  .round:focus-visible { outline: 3px solid var(--sky); outline-offset: 2px; }
+
+  .legend { display: flex; flex-wrap: wrap; gap: 8px 16px; font-size: 13px; color: var(--muted); margin: 0 0 6px; }
+  .legend span { display: inline-flex; align-items: center; gap: 6px; }
+  .sw { width: 18px; height: 18px; border-radius: 6px; display: inline-block; flex: none; }
+  .sw.free { background: var(--free); box-shadow: inset 0 0 0 2px var(--free-edge); }
+  .sw.busy { background: repeating-linear-gradient(135deg, var(--busy-a) 0 5px, var(--busy-b) 5px 10px); }
+  .sw.ask { background: var(--ask); box-shadow: inset 0 0 0 2px var(--ask-edge); }
+  .sw.asked { background: var(--ask-soft); border: 2px dashed var(--ask-edge); }
+  .sw.qt { background: linear-gradient(135deg, var(--qt-a), var(--qt-b)); }
 
   /* --- Grid --- */
-  #monthLabel { font-weight: 600; }
-  #monthNav { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
-  table.grid { width: 100%; border-collapse: collapse; font-size: 13px; }
-  table.grid th { font-weight: 500; color: #777; padding: 4px; font-size: 11px; }
-  table.grid td { text-align: center; padding: 0; }
-  .day-label { text-align: left !important; padding-left: 4px !important; white-space: nowrap; }
+  .grid-head, .row-day { display: grid; grid-template-columns: 54px repeat(3, 1fr); gap: 6px; }
+  .grid-head { position: sticky; top: 0; z-index: 5; background: var(--card); padding: 8px 0 8px; border-bottom: 1px solid var(--line); margin-bottom: 8px; }
+  .col-head { display: flex; flex-direction: column; align-items: center; gap: 1px; font-weight: 700; font-size: 13px; }
+  .col-head svg { width: 20px; height: 20px; }
+  .col-head.morning svg { color: #e8803a; }
+  .col-head.afternoon svg { color: #c98e00; }
+  .col-head.night svg { color: #5b4bc4; }
+  .col-head .time { font-weight: 500; font-size: 11px; color: var(--muted); }
+
+  .row-day { margin-bottom: 6px; }
+  .row-day.mon { margin-top: 16px; }
+  .dchip {
+    display: flex; flex-direction: column; align-items: center; justify-content: center; border-radius: 12px;
+    background: #fff; border: 1px solid var(--line); min-height: 52px; line-height: 1.05;
+  }
+  .dchip small { font-size: 11px; color: var(--muted); font-weight: 600; }
+  .dchip b { font-family: var(--display); font-size: 20px; font-weight: 700; }
+  .dchip.we { background: #e9e4fb; border-color: #cfc6f2; }
+  .dchip.today { background: var(--night); border-color: var(--night); color: #fff; }
+  .dchip.today small { color: #b8c0e0; }
+  .row-day.past .dchip { opacity: 0.45; }
+  .row-day.flash .dchip { box-shadow: 0 0 0 3px var(--qt-a); }
+
   .cell {
-    display: inline-flex; width: 90%; height: 30px; border-radius: 6px;
-    align-items: center; justify-content: center; cursor: pointer; font-size: 11px;
-    border: 1px solid transparent;
+    appearance: none; border: 0; padding: 0; min-height: 52px; border-radius: 12px; position: relative;
+    display: flex; align-items: center; justify-content: center; gap: 6px; cursor: default;
+    -webkit-tap-highlight-color: transparent; user-select: none; -webkit-user-select: none; touch-action: manipulation;
+    color: var(--night); font-size: 12px; font-weight: 700;
   }
-  .cell.free { background: var(--free); border-color: var(--free-strong); }
-  .cell.busy { background: var(--busy); border-color: var(--busy-strong); cursor: default; }
-  .cell.proposed-mine { background: var(--proposed); border-color: var(--proposed-strong); }
-  .cell.proposed-theirs { background: var(--proposed); border-color: var(--proposed-strong); opacity: 0.6; }
-  .cell.qt { background: var(--qt); border-color: var(--qt-strong); font-weight: 600; color: #5c2d4b; cursor: default; }
+  .cell:focus-visible { outline: 3px solid var(--night); outline-offset: 2px; }
+  .cell.tap { cursor: pointer; }
+  .cell.tap:active { transform: scale(0.97); }
+  .cell.free { background: var(--free); box-shadow: inset 0 0 0 2px var(--free-edge); color: var(--free-ink); font-size: 24px; font-weight: 500; }
+  .cell.busy { background: repeating-linear-gradient(135deg, var(--busy-a) 0 7px, var(--busy-b) 7px 14px); color: var(--busy-ink); }
+  .cell.ask-mine { background: var(--ask); box-shadow: inset 0 0 0 2px var(--ask-edge); color: var(--ask-ink); }
+  .cell.ask-theirs { background: var(--ask-soft); border: 2px dashed var(--ask-edge); color: var(--ask-ink); }
+  .cell.qt { background: linear-gradient(135deg, var(--qt-a), var(--qt-b)); color: #fff; font-family: var(--display); font-weight: 800; font-size: 17px; letter-spacing: 0.04em; }
+  .cell.past { background: transparent; box-shadow: inset 0 0 0 1px var(--line); opacity: 0.45; }
 
-  /* --- Tagging modal --- */
-  #tagModal {
-    display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.35);
-    align-items: center; justify-content: center; padding: 20px;
-  }
-  #tagModal .card {
-    background: white; border-radius: 12px; padding: 18px; width: 100%; max-width: 420px;
-    max-height: 80vh; overflow-y: auto;
-  }
-  .tag-item { display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 8px 0; border-bottom: 1px solid var(--line); }
-  .tag-item .meta { font-size: 12px; color: #777; }
-  .tag-item select { font-size: 13px; padding: 4px; }
+  /* --- Booked QT list --- */
+  .qt-row { display: flex; justify-content: space-between; align-items: center; gap: 10px; padding: 10px 0; border-bottom: 1px solid var(--line); font-size: 15px; }
+  .qt-row:last-child { border-bottom: 0; }
+  .qt-row small { display: block; color: var(--muted); font-size: 13px; }
+  .empty { margin: 0; font-size: 14px; color: var(--muted); }
 
-  #qtList .qt-row { display: flex; justify-content: space-between; align-items: center; padding: 6px 0; border-bottom: 1px solid var(--line); font-size: 13px; }
+  /* --- Bottom sheets (slot details + event review) --- */
+  #sheet, #tagModal {
+    display: none; position: fixed; inset: 0; background: rgba(29, 37, 64, 0.45);
+    align-items: flex-end; justify-content: center; z-index: 30;
+  }
+  #sheet.open { display: flex; }
+  #sheet .card, #tagModal .card {
+    background: #fff; width: 100%; max-width: 560px; border-radius: 22px 22px 0 0;
+    padding: 20px 18px 28px; max-height: 82vh; overflow-y: auto;
+  }
+  .card h3 { font-family: var(--display); font-size: 22px; font-weight: 700; margin: 0 0 2px; letter-spacing: -0.01em; }
+  .card .sub { margin: 0 0 14px; color: var(--muted); font-size: 14px; }
+  .blocker { display: flex; gap: 10px; align-items: flex-start; padding: 10px 0; border-top: 1px solid var(--line); }
+  .blocker .av { width: 28px; height: 28px; flex: none; border-radius: 50%; background: var(--night); color: #fff; display: grid; place-items: center; font-family: var(--display); font-weight: 700; font-size: 13px; }
+  .blocker .t { font-weight: 600; }
+  .blocker .w { color: var(--muted); font-size: 13px; }
+  .card .actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 16px; }
+
+  .tag-item { display: flex; justify-content: space-between; align-items: center; gap: 10px; padding: 10px 0; border-bottom: 1px solid var(--line); }
+  .tag-item .meta { font-size: 13px; color: var(--muted); }
+  .tag-item select { font: inherit; font-size: 14px; padding: 8px; border-radius: 10px; border: 1px solid var(--line); background: #fff; }
+
+  #toast {
+    position: fixed; left: 50%; bottom: 22px; transform: translate(-50%, 20px); opacity: 0; pointer-events: none;
+    background: var(--night); color: #fff; padding: 12px 18px; border-radius: 14px; font-size: 14px;
+    max-width: min(420px, 90vw); text-align: center; transition: opacity 0.2s, transform 0.2s; z-index: 40;
+  }
+  #toast.show { opacity: 1; transform: translate(-50%, 0); }
+
+  @media (prefers-reduced-motion: reduce) {
+    #toast { transition: none; }
+    .cell.tap:active { transform: none; }
+  }
 </style>
 </head>
 <body>
@@ -89,57 +200,73 @@
 <!-- ============== PASSCODE GATE ============== -->
 <!-- Nothing below this loads or renders until the passcode is verified server-side. -->
 <div id="gate">
-  <h1>Enter passcode</h1>
-  <input id="passcodeInput" type="password" placeholder="••••" maxlength="40" autocomplete="off">
+  <h1>Meet up</h1>
+  <p>Enter the passcode to continue.</p>
+  <input id="passcodeInput" type="password" placeholder="Passcode" maxlength="40" autocomplete="off"
+         onkeydown="if (event.key === 'Enter') submitPasscode()">
   <button class="btn" onclick="submitPasscode()">Unlock</button>
-  <div class="err" id="gateError"></div>
+  <div class="err" id="gateError" role="status"></div>
 </div>
 
 <!-- ============== MAIN APP (hidden until unlocked) ============== -->
 <div id="app">
-  <header>
+  <div class="top">
     <h1>Meet up</h1>
-    <div class="row" id="whoAmIRow"></div>
-  </header>
+    <div class="you" id="whoAmIRow"></div>
+  </div>
 
-  <section id="connectSection">
-    <h2>Calendars</h2>
+  <button id="nextUp" class="next" type="button" hidden>
+    <span class="next-label" id="nextLabel"></span>
+    <span class="next-when" id="nextWhen"></span>
+    <span class="next-sub" id="nextSub"></span>
+  </button>
+
+  <section class="panel" id="reviewBanner" style="display:none;">
+    <h2 class="ph">New events to review</h2>
+    <p>Tell us whether these really keep you busy, or whether you could meet anyway.</p>
+    <button class="btn" onclick="openTagModal()">Review events</button>
+  </section>
+
+  <section class="panel" id="connectSection">
+    <h2 class="ph">Calendars</h2>
     <div class="row" id="connectRow"></div>
   </section>
 
-  <section id="reviewBanner" style="display:none;">
-    <h2>New events to review</h2>
-    <p style="font-size:13px; color:#555; margin:0 0 8px;">
-      Tell us whether these actually keep you busy, or whether you're free to meet anyway.
-    </p>
-    <button class="btn" onclick="openTagModal()">Review now</button>
-  </section>
-
-  <section>
-    <div id="monthNav">
-      <button class="btn" onclick="shiftMonth(-1)">‹</button>
-      <span id="monthLabel"></span>
-      <button class="btn" onclick="shiftMonth(1)">›</button>
+  <section class="panel">
+    <div class="monthnav">
+      <button class="round" id="prevMonth" aria-label="Previous month" onclick="shiftMonth(-1)">‹</button>
+      <h2 id="monthLabel"></h2>
+      <button class="round" id="nextMonth" aria-label="Next month" onclick="shiftMonth(1)">›</button>
     </div>
-    <table class="grid">
-      <thead><tr><th class="day-label">Day</th><th>Morning</th><th>Afternoon</th><th>Night</th></tr></thead>
-      <tbody id="gridBody"></tbody>
-    </table>
+    <div class="legend" aria-label="Key">
+      <span><i class="sw free"></i>Free for both</span>
+      <span><i class="sw busy"></i>Busy (T or S shows whose)</span>
+      <span><i class="sw ask"></i>You asked</span>
+      <span><i class="sw asked"></i>They asked</span>
+      <span><i class="sw qt"></i>QT booked</span>
+    </div>
+    <div class="grid-head" id="gridHead"></div>
+    <div id="gridBody"></div>
   </section>
 
-  <section>
-    <h2>QT — booked together</h2>
+  <section class="panel">
+    <h2 class="ph">Booked QT</h2>
     <div id="qtList"></div>
   </section>
 </div>
 
-<!-- ============== TAGGING MODAL ============== -->
+<!-- ============== SLOT DETAILS + TOAST ============== -->
+<div id="sheet" role="dialog" aria-modal="true" aria-label="Slot details"><div class="card"></div></div>
+<div id="toast" role="status" aria-live="polite"></div>
+
+<!-- ============== EVENT REVIEW ============== -->
 <div id="tagModal">
   <div class="card">
-    <h2 style="margin-top:0;">Review your events</h2>
+    <h3>Review your events</h3>
+    <p class="sub">Only you see this list. Choose "Actually free" for anything that wouldn't stop you meeting.</p>
     <div id="tagList"></div>
-    <div class="row" style="margin-top:12px; justify-content: flex-end;">
-      <button class="btn" onclick="closeTagModal()">Done</button>
+    <div class="actions">
+      <button class="btn" onclick="closeTagModal()">Save choices</button>
     </div>
   </div>
 </div>
@@ -455,32 +582,70 @@ window.closeTagModal = async function () {
 };
 
 /* =====================================================================
+   HELPERS
+   ===================================================================== */
+const $ = (id) => document.getElementById(id);
+const personLabel = (id) => (CONFIG.people.find(p => p.id === id) || { label: id }).label;
+const initialOf = (id) => personLabel(id).charAt(0).toUpperCase();
+const dateKey = (d) =>
+  `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+const fmtHour = (h) => (h === 0 ? "12am" : h < 12 ? `${h}am` : h === 12 ? "12pm" : `${h - 12}pm`);
+const bucketRange = (b) => `${fmtHour(b.startHour)}–${fmtHour(b.endHour)}`;
+const shortDate = (d) => d.toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short" });
+const longDate = (d) => d.toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long" });
+const fmtClock = (d) => d.toLocaleTimeString("en-GB", { hour: "numeric", minute: "2-digit" });
+const parseKey = (s) => { const [y, m, d] = s.split("-").map(Number); return new Date(y, m - 1, d); };
+const reduceMotion = () => window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+const ICONS = {
+  morning: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 18h18"/><path d="M7 18a5 5 0 0 1 10 0"/><path d="M12 6v3M4.9 10.9l1.8 1.8M19.1 10.9l-1.8 1.8"/></svg>',
+  afternoon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 3v2M12 19v2M3 12h2M19 12h2M5.6 5.6l1.4 1.4M17 17l1.4 1.4M5.6 18.4L7 17M17 7l1.4-1.4"/></svg>',
+  night: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 14.5A8 8 0 0 1 9.5 4a8 8 0 1 0 10.5 10.5z"/></svg>',
+};
+
+let toastTimer;
+function toast(msg) {
+  const el = $("toast");
+  el.textContent = msg;
+  el.classList.add("show");
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => el.classList.remove("show"), 3200);
+}
+
+function openSheet(build) {
+  const card = $("sheet").querySelector(".card");
+  card.replaceChildren();
+  build(card);
+  $("sheet").classList.add("open");
+}
+function closeSheet() { $("sheet").classList.remove("open"); }
+$("sheet").addEventListener("click", (e) => { if (e.target === $("sheet")) closeSheet(); });
+document.addEventListener("keydown", (e) => { if (e.key === "Escape") closeSheet(); });
+
+function el(tag, className, text) {
+  const n = document.createElement(tag);
+  if (className) n.className = className;
+  if (text !== undefined) n.textContent = text;
+  return n;
+}
+
+/* =====================================================================
    GRID — six months rolling, three buckets a day
    ===================================================================== */
 let viewMonthOffset = 0;
+let pendingScroll = null;
+let firstRender = true;
 
 async function loadBusyIntervals(personId) {
   const snap = await getDocs(collection(db, `people/${personId}/events`));
   const intervals = [];
   snap.forEach(d => {
     const e = d.data();
-    if (e.tag === "busy") intervals.push({ start: new Date(e.start), end: new Date(e.end), title: e.title });
+    if (e.tag === "busy") {
+      intervals.push({ start: new Date(e.start), end: new Date(e.end), title: e.title, owner: personId });
+    }
   });
   return intervals;
-}
-
-function bucketStatus(day, bucket, myBusy, theirBusy, matches) {
-  const bStart = new Date(day); bStart.setHours(bucket.startHour, 0, 0, 0);
-  const bEnd = new Date(day); bEnd.setHours(bucket.endHour, 0, 0, 0);
-  const overlaps = (iv) => iv.start < bEnd && iv.end > bStart;
-
-  const key = `${day.toISOString().slice(0, 10)}_${bucket.key}`;
-  const match = matches[key];
-  if (match?.status === "qt") return { status: "qt", key };
-  if (myBusy.some(overlaps) || theirBusy.some(overlaps)) return { status: "busy", key };
-  if (match?.[ME]) return { status: "proposed-mine", key };
-  if (match?.[OTHER]) return { status: "proposed-theirs", key };
-  return { status: "free", key };
 }
 
 async function loadMatches() {
@@ -490,93 +655,269 @@ async function loadMatches() {
   return matches;
 }
 
+function bucketInfo(day, bucket, busy, matches, now) {
+  const bStart = new Date(day); bStart.setHours(bucket.startHour, 0, 0, 0);
+  const bEnd = new Date(day); bEnd.setHours(bucket.endHour, 0, 0, 0);
+  const key = `${dateKey(day)}_${bucket.key}`;
+  const match = matches[key];
+  const blockers = busy.filter(iv => iv.start < bEnd && iv.end > bStart);
+
+  let status;
+  if (bEnd <= now) status = "past";
+  else if (match?.status === "qt") status = "qt";
+  else if (blockers.length) status = "busy";
+  else if (match?.[ME]) status = "ask-mine";
+  else if (match?.[OTHER]) status = "ask-theirs";
+  else status = "free";
+  return { status, key, blockers, bStart, bEnd };
+}
+
+function renderHead() {
+  const head = $("gridHead");
+  head.replaceChildren(el("div"));
+  CONFIG.buckets.forEach(b => {
+    const col = el("div", `col-head ${b.key}`);
+    const icon = el("span");
+    icon.innerHTML = ICONS[b.key] || "";
+    col.append(icon, el("span", "", b.label), el("span", "time", bucketRange(b)));
+    head.appendChild(col);
+  });
+}
+
+function makeCell(info, day, bucket) {
+  const b = el("button", `cell ${info.status}`);
+  b.type = "button";
+  const when = `${longDate(day)}, ${bucket.label.toLowerCase()}`;
+
+  if (info.status === "free") {
+    b.textContent = "+";
+    b.classList.add("tap");
+    b.setAttribute("aria-label", `${when}: free for both. Tap to suggest it.`);
+    b.onclick = () => toggleProposal(info, day, bucket);
+  } else if (info.status === "ask-mine") {
+    b.textContent = "You ✓";
+    b.classList.add("tap");
+    b.setAttribute("aria-label", `${when}: you suggested this. Tap to withdraw.`);
+    b.onclick = () => toggleProposal(info, day, bucket);
+  } else if (info.status === "ask-theirs") {
+    b.textContent = `${initialOf(OTHER)} asked`;
+    b.classList.add("tap");
+    b.setAttribute("aria-label", `${when}: ${personLabel(OTHER)} suggested this. Tap to say yes.`);
+    b.onclick = () => toggleProposal(info, day, bucket);
+  } else if (info.status === "busy") {
+    const owners = [...new Set(info.blockers.map(x => x.owner))].sort();
+    b.textContent = owners.map(initialOf).join("+");
+    b.classList.add("tap");
+    b.setAttribute("aria-label", `${when}: busy. Tap to see why.`);
+    b.onclick = () => showBusy(info, day, bucket);
+  } else if (info.status === "qt") {
+    b.textContent = "QT";
+    b.classList.add("tap");
+    b.setAttribute("aria-label", `${when}: QT booked. Tap for details.`);
+    b.onclick = () => showQt(day, bucket);
+  } else {
+    b.disabled = true;
+    b.setAttribute("aria-label", `${when}: already passed.`);
+  }
+  return b;
+}
+
 async function renderGrid() {
   const [myBusy, theirBusy, matches] = await Promise.all([
     loadBusyIntervals(ME), loadBusyIntervals(OTHER), loadMatches(),
   ]);
+  const busy = myBusy.concat(theirBusy);
+  const now = new Date();
 
-  const viewMonth = new Date();
-  viewMonth.setMonth(viewMonth.getMonth() + viewMonthOffset);
-  document.getElementById("monthLabel").textContent =
-    viewMonth.toLocaleString(undefined, { month: "long", year: "numeric" });
+  renderHead();
 
-  const body = document.getElementById("gridBody");
-  body.innerHTML = "";
+  const viewMonth = new Date(now.getFullYear(), now.getMonth() + viewMonthOffset, 1);
+  $("monthLabel").textContent = viewMonth.toLocaleString("en-GB", { month: "long", year: "numeric" });
+  $("prevMonth").disabled = viewMonthOffset <= 0;
+  $("nextMonth").disabled = viewMonthOffset >= CONFIG.monthsAhead;
+
+  const body = $("gridBody");
+  body.replaceChildren();
+  const todayKey = dateKey(now);
   const daysInMonth = new Date(viewMonth.getFullYear(), viewMonth.getMonth() + 1, 0).getDate();
 
   for (let d = 1; d <= daysInMonth; d++) {
     const day = new Date(viewMonth.getFullYear(), viewMonth.getMonth(), d);
-    const tr = document.createElement("tr");
-    const label = document.createElement("td");
-    label.className = "day-label";
-    label.textContent = day.toLocaleDateString(undefined, { weekday: "short", day: "numeric" });
-    tr.appendChild(label);
+    const dow = day.getDay();
+    const key = dateKey(day);
+    const row = el("div", "row-day");
+    row.dataset.date = key;
+    if (dow === 1 && body.children.length) row.classList.add("mon");
 
-    CONFIG.buckets.forEach(bucket => {
-      const td = document.createElement("td");
-      const { status, key } = bucketStatus(day, bucket, myBusy, theirBusy, matches);
-      const cellEl = document.createElement("div");
-      cellEl.className = `cell ${status}`;
-      cellEl.textContent = status === "qt" ? "QT" : "";
-      if (status === "free" || status === "proposed-mine") {
-        cellEl.onclick = () => toggleProposal(key);
-      }
-      td.appendChild(cellEl);
-      tr.appendChild(td);
-    });
-    body.appendChild(tr);
+    const infos = CONFIG.buckets.map(bucket => bucketInfo(day, bucket, busy, matches, now));
+    if (infos.every(i => i.status === "past")) continue; // days already gone aren't shown
+
+    const chip = el("div", "dchip");
+    if (dow === 0 || dow === 6) chip.classList.add("we");
+    if (key === todayKey) chip.classList.add("today");
+    chip.append(
+      el("small", "", day.toLocaleDateString("en-GB", { weekday: "short" })),
+      el("b", "", String(d))
+    );
+    row.appendChild(chip);
+
+    CONFIG.buckets.forEach((bucket, i) => row.appendChild(makeCell(infos[i], day, bucket)));
+    body.appendChild(row);
   }
-  renderQtList(matches);
+
+  renderQtList(matches, now);
+  updateNextUp(busy, matches, now);
+
+  if (pendingScroll) {
+    const target = body.querySelector(`[data-date="${pendingScroll}"]`);
+    pendingScroll = null;
+    if (target) {
+      target.scrollIntoView({ block: "center", behavior: reduceMotion() ? "auto" : "smooth" });
+    }
+  }
 }
 
-async function toggleProposal(key) {
-  const ref = doc(db, "matches", key);
-  const snap = await getDoc(ref);
-  const data = snap.exists() ? snap.data() : {};
-  const nowMine = !data[ME];
-  const next = { ...data, [ME]: nowMine };
-  next.status = (next[ME] && next[OTHER]) ? "qt" : "proposed";
-  await setDoc(ref, next);
+async function toggleProposal(info, day, bucket) {
+  try {
+    const ref = doc(db, "matches", info.key);
+    const snap = await getDoc(ref);
+    const data = snap.exists() ? snap.data() : {};
+    const nowMine = !data[ME];
+    const next = { ...data, [ME]: nowMine };
+    next.status = (next[ME] && next[OTHER]) ? "qt" : "proposed";
+    await setDoc(ref, next);
+
+    const label = `${shortDate(day)}, ${bucket.label.toLowerCase()}`;
+    if (next.status === "qt") toast(`QT booked for ${label}. Download it from the list below.`);
+    else if (nowMine) toast(`Suggested ${label}. Waiting for ${personLabel(OTHER)}.`);
+    else toast(`Withdrew ${label}.`);
+  } catch (e) {
+    toast("Couldn't save that. Check your connection and try again.");
+  }
   renderGrid();
 }
 
+/* --- Next-up strip: what's waiting, or the first free slot --- */
+function updateNextUp(busy, matches, now) {
+  const strip = $("nextUp");
+  let theirs = null, free = null;
+  const limit = CONFIG.monthsAhead * 31;
+  for (let i = 0; i < limit && !(theirs && free); i++) {
+    const day = new Date(now.getFullYear(), now.getMonth(), now.getDate() + i);
+    for (const bucket of CONFIG.buckets) {
+      const info = bucketInfo(day, bucket, busy, matches, now);
+      if (info.status === "ask-theirs" && !theirs) theirs = { day, bucket };
+      if (info.status === "free" && !free) free = { day, bucket };
+    }
+  }
+  const pick = theirs || free;
+  if (!pick) { strip.hidden = true; return; }
+
+  strip.hidden = false;
+  strip.classList.toggle("alert", !!theirs);
+  $("nextLabel").textContent = theirs
+    ? `${personLabel(OTHER)} suggested a time`
+    : "Next time you're both free";
+  $("nextWhen").textContent = `${shortDate(pick.day)} · ${pick.bucket.label}`;
+  $("nextSub").textContent = `${bucketRange(pick.bucket)}. ${theirs ? "Tap to find it and say yes." : "Tap to find it in the grid."}`;
+  strip.onclick = () => {
+    viewMonthOffset = (pick.day.getFullYear() - now.getFullYear()) * 12 + pick.day.getMonth() - now.getMonth();
+    pendingScroll = dateKey(pick.day);
+    renderGrid().then(() => {
+      const row = $("gridBody").querySelector(`[data-date="${dateKey(pick.day)}"]`);
+      if (row) { row.classList.add("flash"); setTimeout(() => row.classList.remove("flash"), 1800); }
+    });
+  };
+}
+
 window.shiftMonth = function (delta) {
-  viewMonthOffset += delta;
+  const next = viewMonthOffset + delta;
+  if (next < 0 || next > CONFIG.monthsAhead) return;
+  viewMonthOffset = next;
+  pendingScroll = null;
   renderGrid();
 };
 
 /* =====================================================================
+   SLOT DETAIL SHEETS
+   ===================================================================== */
+function showBusy(info, day, bucket) {
+  openSheet(card => {
+    card.append(el("h3", "", `${shortDate(day)} · ${bucket.label}`));
+    card.append(el("p", "sub", `${bucketRange(bucket)}. Busy because of:`));
+    [...info.blockers].sort((a, b) => a.start - b.start).forEach(ev => {
+      const row = el("div", "blocker");
+      row.append(el("span", "av", initialOf(ev.owner)));
+      const text = el("div");
+      text.append(
+        el("div", "t", ev.title || "(no title)"),
+        el("div", "w", `${personLabel(ev.owner)} · ${shortDate(ev.start)} ${fmtClock(ev.start)}–${fmtClock(ev.end)}`)
+      );
+      row.append(text);
+      card.append(row);
+    });
+    const actions = el("div", "actions");
+    const close = el("button", "btn ghost", "Close");
+    close.onclick = closeSheet;
+    actions.append(close);
+    card.append(actions);
+  });
+}
+
+function showQt(day, bucket) {
+  openSheet(card => {
+    card.append(el("h3", "", "QT booked"));
+    card.append(el("p", "sub", `${longDate(day)}, ${bucket.label.toLowerCase()} (${bucketRange(bucket)})`));
+    const actions = el("div", "actions");
+    const close = el("button", "btn ghost", "Close");
+    close.onclick = closeSheet;
+    const dl = el("button", "btn qt", "Download for my calendar");
+    dl.onclick = () => downloadIcs(dateKey(day), bucket);
+    actions.append(close, dl);
+    card.append(actions);
+  });
+}
+
+/* =====================================================================
    QT LIST + ICS DOWNLOAD
    ===================================================================== */
-function renderQtList(matches) {
-  const el = document.getElementById("qtList");
-  el.innerHTML = "";
-  const qtEntries = Object.entries(matches).filter(([, v]) => v.status === "qt");
-  if (!qtEntries.length) {
-    el.innerHTML = `<p style="font-size:13px;color:#777;">Nothing booked yet.</p>`;
+function renderQtList(matches, now) {
+  const list = $("qtList");
+  list.replaceChildren();
+  const entries = Object.entries(matches)
+    .filter(([, v]) => v.status === "qt")
+    .map(([key]) => {
+      const [dateStr, bucketKey] = key.split("_");
+      return { dateStr, bucket: CONFIG.buckets.find(b => b.key === bucketKey), day: parseKey(dateStr) };
+    })
+    .filter(x => x.bucket)
+    .filter(x => { const end = new Date(x.day); end.setHours(x.bucket.endHour, 0, 0, 0); return end > now; })
+    .sort((a, b) => a.day - b.day || a.bucket.startHour - b.bucket.startHour);
+
+  if (!entries.length) {
+    list.append(el("p", "empty", "Nothing booked yet. Tap a green slot to suggest it. When you both tap the same one, it turns into QT."));
     return;
   }
-  qtEntries.forEach(([key]) => {
-    const [dateStr, bucketKey] = key.split("_");
-    const bucket = CONFIG.buckets.find(b => b.key === bucketKey);
-    const row = document.createElement("div");
-    row.className = "qt-row";
-    row.innerHTML = `
-      <span>${dateStr} — ${bucket.label}</span>
-      <button class="btn">Download</button>
-    `;
-    row.querySelector("button").onclick = () => downloadIcs(dateStr, bucket);
-    el.appendChild(row);
+  entries.forEach(({ dateStr, bucket, day }) => {
+    const row = el("div", "qt-row");
+    const left = el("div");
+    left.append(el("span", "", `${longDate(day)}`), el("small", "", `${bucket.label}, ${bucketRange(bucket)}`));
+    const btn = el("button", "btn qt", "Download");
+    btn.onclick = () => downloadIcs(dateStr, bucket);
+    row.append(left, btn);
+    list.append(row);
   });
 }
 
 function downloadIcs(dateStr, bucket) {
-  const day = new Date(dateStr);
+  const day = parseKey(dateStr);
   const start = new Date(day); start.setHours(bucket.startHour, 0, 0, 0);
   const end = new Date(day); end.setHours(bucket.endHour, 0, 0, 0);
   const fmt = (d) => d.toISOString().replace(/[-:]/g, "").split(".")[0] + "Z";
   const ics = [
-    "BEGIN:VCALENDAR", "VERSION:2.0", "BEGIN:VEVENT",
+    "BEGIN:VCALENDAR", "VERSION:2.0", "PRODID:-//q-time-planner//EN", "BEGIN:VEVENT",
+    `UID:${dateStr}-${bucket.key}@q-time-planner`,
+    `DTSTAMP:${fmt(new Date())}`,
     `DTSTART:${fmt(start)}`, `DTEND:${fmt(end)}`,
     "SUMMARY:QT", "END:VEVENT", "END:VCALENDAR",
   ].join("\r\n");
@@ -591,7 +932,12 @@ function downloadIcs(dateStr, bucket) {
    BOOT
    ===================================================================== */
 function boot() {
-  document.getElementById("whoAmIRow").innerHTML = `<span class="pill">You: ${ME}</span>`;
+  const who = $("whoAmIRow");
+  who.replaceChildren();
+  const sw = el("button", "", "Not you?");
+  sw.type = "button";
+  sw.onclick = () => { localStorage.removeItem("meetup-person-id"); location.reload(); };
+  who.append(el("span", "av", initialOf(ME)), el("span", "", personLabel(ME)), sw);
   renderConnectRow();
   renderGrid();
 }
