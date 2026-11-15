@@ -248,12 +248,24 @@
     background: #fff; color: var(--night); font: inherit; font-size: 15px; font-weight: 600; cursor: pointer;
     -webkit-tap-highlight-color: transparent; touch-action: manipulation;
   }
-  .kd-day.on { background: var(--kid); border-color: var(--kid); color: #fff; }
+  .kd-day.on-all { background: var(--kid); border-color: var(--kid); color: #fff; }
+  /* Handover days: a band at the top for the morning, at the bottom for the rest of the day. */
+  .kd-day.on-am { border-color: var(--kid); box-shadow: inset 0 13px 0 var(--kid); }
+  .kd-day.on-pm { border-color: var(--kid); box-shadow: inset 0 -13px 0 var(--kid); }
+  .kd-day.on-pm.cal::after { background: #fff; }
+  .seg { display: grid; grid-template-columns: repeat(3, auto); gap: 6px; margin-bottom: 14px; }
+  .seg button {
+    appearance: none; font: inherit; font-size: 13px; font-weight: 600; padding: 9px 6px; border-radius: 10px;
+    border: 1.5px solid var(--line); background: #fff; color: var(--night); cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+  }
+  .seg button.on { background: var(--night); border-color: var(--night); color: #fff; }
+  .seg button:focus-visible { outline: 3px solid var(--sky); outline-offset: 2px; }
   .kd-day.cal::after {
     content: ""; position: absolute; left: 50%; bottom: 5px; width: 6px; height: 6px; margin-left: -3px;
     border-radius: 50%; background: currentColor;
   }
-  .kd-day.diff { box-shadow: 0 0 0 3px var(--ask-edge); }
+  .kd-day.diff { outline: 3px solid var(--ask-edge); outline-offset: 1px; }
   .kd-day:disabled { opacity: 0.35; cursor: default; }
   .kd-day:focus-visible { outline: 3px solid var(--night); outline-offset: 2px; }
   .kd-key { font-size: 13px; color: var(--muted); margin: 10px 0 0; }
@@ -264,6 +276,24 @@
   .kd-field { display: block; margin-top: 14px; font-size: 13px; color: var(--muted); }
   .kd-field input { display: block; width: 100%; margin-top: 4px; font: inherit; font-size: 15px; padding: 10px; border-radius: 10px; border: 1px solid var(--line); color: var(--night); }
   #sheet .actions { flex-wrap: wrap; }
+
+  /* --- Plans and clashes --- */
+  .plan-field { display: block; font-size: 13px; color: var(--muted); }
+  .plan-field textarea {
+    display: block; width: 100%; margin-top: 4px; min-height: 76px; resize: vertical; font: inherit; font-size: 15px;
+    padding: 10px; border-radius: 10px; border: 1px solid var(--line); color: var(--night);
+  }
+  .clash-box { background: var(--ask-soft); border: 1px solid var(--ask-edge); border-radius: 12px; padding: 10px 12px; margin-bottom: 14px; font-size: 14px; color: var(--ask-ink); }
+  .clash-title { font-weight: 700; margin-bottom: 2px; }
+  .cell .warn {
+    position: absolute; right: -5px; bottom: -6px; width: 21px; height: 21px; border-radius: 50%;
+    display: grid; place-items: center; background: var(--ask); color: var(--ask-ink); border: 2px solid #fff;
+    font-family: var(--display); font-size: 13px; font-weight: 800; letter-spacing: 0;
+  }
+  .qt-text { flex: 1; min-width: 0; }
+  .qt-row small.plan { color: var(--night); overflow-wrap: anywhere; }
+  .qt-row small.clash-note { color: #9a3412; font-weight: 600; }
+  .qt-row .linkbtn { flex: none; }
 
   /* --- Bank holidays --- */
   .hol { margin: 0 0 4px 60px; font-size: 12px; font-weight: 700; color: #9a4410; }
@@ -331,7 +361,7 @@
       <span><i class="sw busy"></i>Busy (T or S shows whose)</span>
       <span><i class="sw ask"></i>You asked</span>
       <span><i class="sw asked"></i>They asked</span>
-      <span><i class="sw qt"></i>QT booked</span>
+      <span><i class="sw qt"></i>QT booked (! means a clash)</span>
     </div>
     <div class="grid-head" id="gridHead"></div>
     <div id="gridBody"></div>
@@ -638,7 +668,13 @@ async function runSync(button, job) {
   // renderConnectRow may already have replaced this button; harmless if so.
   if (button) { button.disabled = false; button.textContent = label; }
 }
-function syncSummary({ total, review }) {
+function syncSummary(result) {
+  const clashNote = clashCount
+    ? ` ${clashCount === 1 ? "A booked QT now has" : `${clashCount} booked QTs now have`} a clash — see the top of the page.`
+    : "";
+  return baseSummary(result) + clashNote;
+}
+function baseSummary({ total, review }) {
   if (!total) return "Synced. No events found in the next six months.";
   if (review) return `Synced ${total} events. ${review} new ${review === 1 ? "one needs" : "ones need"} a choice — see "New events to review".`;
   return `Synced ${total} events. Nothing new to review.`;
@@ -823,6 +859,7 @@ const CHOICES = [
   ["kids", "Free, kids with me"],
   ["withkids", "Busy only if kids with me"],
 ];
+const isQtEntry = (ev) => /^qt\b/i.test(ev.title || "");
 const safeId = (id) => String(id).replace(/\//g, "_");
 const ruleId = (key) => encodeURIComponent(String(key)).replace(/\./g, "%2E").slice(0, 900);
 const titleRule = (title) => ruleId("title:" + title);
@@ -874,7 +911,9 @@ async function stageEvents(allEvents, source) {
   const toReview = [];
   for (const raw of events) {
     const ev = { ...raw, id: safeId(raw.id), source };
-    const tag = existing[ev.id]?.tag
+    // A QT plan downloaded from here and synced back is never asked about.
+    const tag = (isQtEntry(ev) && "qt")
+      || existing[ev.id]?.tag
       || rules[titleRule(ev.title)]
       || rules[ruleId(ev.recurringEventId || ev.title)];
     if (tag) writes.push([doc(db, `people/${ME}/events/${ev.id}`), eventDoc(ev, tag)]);
@@ -1028,7 +1067,7 @@ async function openMyEvents() {
     const now = new Date();
     snap.forEach(d => {
       const e = d.data();
-      if (new Date(e.end) > now && e.source !== "manual") mine.push({ id: d.id, ...e });
+      if (new Date(e.end) > now && e.source !== "manual" && e.tag !== "qt") mine.push({ id: d.id, ...e });
     });
   } catch (e) {
     toast("Couldn't load your events. Check your connection and try again.");
@@ -1245,7 +1284,8 @@ function bucketInfo(day, bucket, busy, matches, now, kids = []) {
   const key = `${dateKey(day)}_${bucket.key}`;
   const match = matches[key];
   const overlaps = (iv) => iv.start < bEnd && iv.end > bStart;
-  const blockers = busy.filter(overlaps);
+  // The calendar copy of a QT plan (its name starts with "QT") never blocks or clashes.
+  const blockers = busy.filter(iv => overlaps(iv) && !isQtEntry(iv));
   const kidOwners = [...new Set(kids.filter(overlaps).map(iv => iv.owner))];
 
   let status;
@@ -1255,7 +1295,9 @@ function bucketInfo(day, bucket, busy, matches, now, kids = []) {
   else if (match?.[ME]) status = "ask-mine";
   else if (match?.[OTHER]) status = "ask-theirs";
   else status = "free";
-  return { status, key, blockers, kidOwners, bStart, bEnd };
+  // A booked QT stays booked, but anything busy that lands on it is a clash.
+  const clash = status === "qt" ? blockers : [];
+  return { status, key, match, blockers, clash, kidOwners, bStart, bEnd };
 }
 
 function renderHead() {
@@ -1279,17 +1321,17 @@ function makeCell(info, day, bucket) {
     b.textContent = "+";
     b.classList.add("tap");
     b.setAttribute("aria-label", `${when}: free for both. Tap to suggest it.`);
-    b.onclick = () => toggleProposal(info, day, bucket);
+    b.onclick = () => showSlot(info, day, bucket);
   } else if (info.status === "ask-mine") {
     b.textContent = "You ✓";
     b.classList.add("tap");
-    b.setAttribute("aria-label", `${when}: you suggested this. Tap to withdraw.`);
-    b.onclick = () => toggleProposal(info, day, bucket);
+    b.setAttribute("aria-label", `${when}: you suggested this. Tap to change the plan or withdraw.`);
+    b.onclick = () => showSlot(info, day, bucket);
   } else if (info.status === "ask-theirs") {
     b.textContent = `${initialOf(OTHER)} asked`;
     b.classList.add("tap");
     b.setAttribute("aria-label", `${when}: ${personLabel(OTHER)} suggested this. Tap to say yes.`);
-    b.onclick = () => toggleProposal(info, day, bucket);
+    b.onclick = () => showSlot(info, day, bucket);
   } else if (info.status === "busy") {
     const owners = [...new Set(info.blockers.map(x => x.owner))].sort();
     b.textContent = owners.map(initialOf).join("+");
@@ -1299,8 +1341,9 @@ function makeCell(info, day, bucket) {
   } else if (info.status === "qt") {
     b.textContent = "QT";
     b.classList.add("tap");
-    b.setAttribute("aria-label", `${when}: QT booked. Tap for details.`);
-    b.onclick = () => showQt(day, bucket);
+    b.setAttribute("aria-label", `${when}: QT booked${info.clash.length ? ", but something now clashes with it" : ""}. Tap for details.`);
+    if (info.clash.length) { b.classList.add("clash"); b.append(el("span", "warn", "!")); }
+    b.onclick = () => showSlot(info, day, bucket);
   } else {
     b.disabled = true;
     b.setAttribute("aria-label", `${when}: already passed.`);
@@ -1385,7 +1428,7 @@ async function renderGrid() {
     body.appendChild(row);
   }
 
-  renderQtList(matches, now);
+  renderQtList(matches, now, busy);
   updateNextUp(busy, matches, now);
 
   if (pendingScroll) {
@@ -1397,49 +1440,47 @@ async function renderGrid() {
   }
 }
 
-async function toggleProposal(info, day, bucket) {
-  try {
-    const ref = doc(db, "matches", info.key);
-    const snap = await getDoc(ref);
-    const data = snap.exists() ? snap.data() : {};
-    const nowMine = !data[ME];
-    const next = { ...data, [ME]: nowMine };
-    next.status = (next[ME] && next[OTHER]) ? "qt" : "proposed";
-    await setDoc(ref, next);
-
-    const label = `${shortDate(day)}, ${bucket.label.toLowerCase()}`;
-    if (next.status === "qt") toast(`QT booked for ${label}. Download it from the list below.`);
-    else if (nowMine) toast(`Suggested ${label}. Waiting for ${personLabel(OTHER)}.`);
-    else toast(`Withdrew ${label}.`);
-  } catch (e) {
-    toast("Couldn't save that. Check your connection and try again.");
-  }
-  renderGrid();
+/* Reads the latest copy of a slot's record, applies a change, and saves it.
+   A slot is QT once both people have said yes. */
+async function updateMatch(key, change) {
+  const ref = doc(db, "matches", key);
+  const snap = await getDoc(ref);
+  const next = { ...(snap.exists() ? snap.data() : {}) };
+  change(next);
+  next.status = (next[ME] && next[OTHER]) ? "qt" : "proposed";
+  if (!next[ME] && !next[OTHER]) next.plan = "";
+  await setDoc(ref, next);
+  return next;
 }
 
-/* --- Next-up strip: what's waiting, or the first free slot --- */
+/* --- Next-up strip: a clash first, then a waiting suggestion, then the first free slot --- */
+let clashCount = 0;
 function updateNextUp(busy, matches, now) {
   const strip = $("nextUp");
-  let theirs = null, free = null;
+  let clash = null, theirs = null, free = null;
+  clashCount = 0;
   const limit = CONFIG.monthsAhead * 31;
-  for (let i = 0; i < limit && !(theirs && free); i++) {
+  for (let i = 0; i < limit; i++) {
     const day = new Date(now.getFullYear(), now.getMonth(), now.getDate() + i);
     for (const bucket of CONFIG.buckets) {
       const info = bucketInfo(day, bucket, busy, matches, now);
+      if (info.clash.length) { clashCount++; if (!clash) clash = { day, bucket, info }; }
       if (info.status === "ask-theirs" && !theirs) theirs = { day, bucket };
       if (info.status === "free" && !free) free = { day, bucket };
     }
   }
-  const pick = theirs || free;
+  const pick = clash || theirs || free;
   if (!pick) { strip.hidden = true; return; }
 
   strip.hidden = false;
-  strip.classList.toggle("alert", !!theirs);
-  $("nextLabel").textContent = theirs
-    ? `${personLabel(OTHER)} suggested a time`
-    : "Next time you're both free";
+  strip.classList.toggle("alert", !!(clash || theirs));
+  $("nextLabel").textContent = clash
+    ? (clashCount > 1 ? `${clashCount} booked QTs have a clash` : "A booked QT has a clash")
+    : theirs ? `${personLabel(OTHER)} suggested a time` : "Next time you're both free";
   $("nextWhen").textContent = `${shortDate(pick.day)} · ${pick.bucket.label}`;
-  $("nextSub").textContent = `${bucketRange(pick.bucket)}. ${theirs ? "Tap to find it and say yes." : "Tap to find it in the grid."}`;
+  $("nextSub").textContent = clash
+    ? `Clashes with ${clash.info.clash[0].title || "an event"}. Tap to see it.`
+    : `${bucketRange(pick.bucket)}. ${theirs ? "Tap to find it and say yes." : "Tap to find it in the grid."}`;
   strip.onclick = () => {
     viewMonthOffset = (pick.day.getFullYear() - now.getFullYear()) * 12 + pick.day.getMonth() - now.getMonth();
     pendingScroll = dateKey(pick.day);
@@ -1484,16 +1525,81 @@ function showBusy(info, day, bucket) {
   });
 }
 
-function showQt(day, bucket) {
+/* One sheet for every slot you can act on: suggest it, answer a suggestion,
+   or look after a booked QT. The plan is a shared note either person can edit. */
+function showSlot(info, day, bucket) {
+  const match = info.match || {};
+  const status = info.status;
+  const whenShort = `${shortDate(day)}, ${bucket.label.toLowerCase()}`;
   openSheet(card => {
-    card.append(el("h3", "", "QT booked"));
-    card.append(el("p", "sub", `${longDate(day)}, ${bucket.label.toLowerCase()} (${bucketRange(bucket)})`));
+    card.append(el("h3", "", status === "qt" ? "QT booked" : `${shortDate(day)} · ${bucket.label}`));
+    const lead = {
+      "free": "You're both free.",
+      "ask-mine": `You suggested this. Waiting for ${personLabel(OTHER)}.`,
+      "ask-theirs": `${personLabel(OTHER)} suggested this.`,
+    }[status] || "";
+    card.append(el("p", "sub", `${longDate(day)}, ${bucket.label.toLowerCase()} (${bucketRange(bucket)}). ${lead}`.trim()));
+
+    if (info.clash.length) {
+      const box = el("div", "clash-box");
+      box.append(el("div", "clash-title", "This now clashes with:"));
+      [...info.clash].sort((a, b) => a.start - b.start).forEach(ev => box.append(el("div", "",
+        `${ev.title || "(no title)"} · ${personLabel(ev.owner)}, ${fmtClock(ev.start)}–${fmtClock(ev.end)}`)));
+      card.append(box);
+    }
+
+    const field = el("label", "plan-field");
+    const area = document.createElement("textarea");
+    area.maxLength = 300; area.rows = 3;
+    area.value = match.plan || "";
+    area.placeholder = "Dinner at ours, a walk, the cinema…";
+    field.append(el("span", "", "The plan (optional)"), area);
+    card.append(field);
+    const plan = () => area.value.trim();
+
+    const act = async (change, message) => {
+      try {
+        const next = await updateMatch(info.key, change);
+        closeSheet();
+        toast(typeof message === "function" ? message(next) : message);
+      } catch (e) {
+        toast("Couldn't save that. Check your connection and try again.");
+      }
+      renderGrid();
+    };
     const actions = el("div", "actions");
-    const close = el("button", "btn ghost", "Close");
-    close.onclick = closeSheet;
-    const dl = el("button", "btn qt", "Download for my calendar");
-    dl.onclick = () => downloadIcs(dateKey(day), bucket);
-    actions.append(close, dl);
+    const button = (cls, text, fn) => {
+      const b = el("button", cls, text);
+      b.type = "button"; b.onclick = fn;
+      actions.append(b);
+    };
+
+    if (status === "free") {
+      button("btn ghost", "Cancel", closeSheet);
+      button("btn", "Suggest this time", () => act(
+        m => { m[ME] = true; m.plan = plan(); },
+        next => (next.status === "qt"
+          ? `QT booked for ${whenShort}.`
+          : `Suggested ${whenShort}. Waiting for ${personLabel(OTHER)}.`)));
+    } else if (status === "ask-mine") {
+      button("btn ghost", "Withdraw", () => act(m => { m[ME] = false; }, `Withdrew ${whenShort}.`));
+      button("btn", "Save plan", () => act(m => { m.plan = plan(); }, "Plan saved."));
+    } else if (status === "ask-theirs") {
+      button("btn ghost", "Not now", closeSheet);
+      button("btn qt", "Yes, book it", () => act(
+        m => { m[ME] = true; m.plan = plan(); },
+        `QT booked for ${whenShort}. Download it from the Booked QT list.`));
+    } else {
+      button("linkbtn", "Cancel this QT", () => {
+        if (!confirm(`Cancel QT on ${whenShort}? This cancels it for both of you.`)) return;
+        act(m => { m[ME] = false; m[OTHER] = false; m.plan = ""; }, `Cancelled QT on ${whenShort}.`);
+      });
+      button("btn ghost", "Save plan", () => act(m => { m.plan = plan(); }, "Plan saved."));
+      button("btn qt", "Download", () => {
+        updateMatch(info.key, m => { m.plan = plan(); }).then(renderGrid).catch(() => {});
+        downloadIcs(dateKey(day), bucket, plan());
+      });
+    }
     card.append(actions);
   });
 }
@@ -1501,47 +1607,63 @@ function showQt(day, bucket) {
 /* =====================================================================
    QT LIST + ICS DOWNLOAD
    ===================================================================== */
-function renderQtList(matches, now) {
+function renderQtList(matches, now, busy) {
   const list = $("qtList");
   list.replaceChildren();
   const entries = Object.entries(matches)
     .filter(([, v]) => v.status === "qt")
-    .map(([key]) => {
+    .map(([key, v]) => {
       const [dateStr, bucketKey] = key.split("_");
-      return { dateStr, bucket: CONFIG.buckets.find(b => b.key === bucketKey), day: parseKey(dateStr) };
+      return { dateStr, bucket: CONFIG.buckets.find(b => b.key === bucketKey), day: parseKey(dateStr), plan: v.plan || "" };
     })
     .filter(x => x.bucket)
     .filter(x => { const end = new Date(x.day); end.setHours(x.bucket.endHour, 0, 0, 0); return end > now; })
     .sort((a, b) => a.day - b.day || a.bucket.startHour - b.bucket.startHour);
 
   if (!entries.length) {
-    list.append(el("p", "empty", "Nothing booked yet. Tap a green slot to suggest it. When you both tap the same one, it turns into QT."));
+    list.append(el("p", "empty", "Nothing booked yet. Tap a green slot to suggest it. When you've both said yes to the same one, it turns into QT."));
     return;
   }
-  entries.forEach(({ dateStr, bucket, day }) => {
+  entries.forEach(({ dateStr, bucket, day, plan }) => {
+    const info = bucketInfo(day, bucket, busy, matches, now);
     const row = el("div", "qt-row");
-    const left = el("div");
-    left.append(el("span", "", `${longDate(day)}`), el("small", "", `${bucket.label}, ${bucketRange(bucket)}`));
-    const btn = el("button", "btn qt", "Download");
-    btn.onclick = () => downloadIcs(dateStr, bucket);
-    row.append(left, btn);
+    const left = el("div", "qt-text");
+    left.append(el("span", "", longDate(day)), el("small", "", `${bucket.label}, ${bucketRange(bucket)}`));
+    if (plan) left.append(el("small", "plan", plan));
+    if (info.clash.length) {
+      left.append(el("small", "clash-note", "Clashes with " +
+        info.clash.map(ev => `${ev.title || "an event"} (${personLabel(ev.owner)})`).join(", ")));
+    }
+    const details = el("button", "linkbtn", "Details");
+    details.type = "button";
+    details.onclick = () => showSlot(info, day, bucket);
+    const btn = el("button", "btn qt small", "Download");
+    btn.type = "button";
+    btn.onclick = () => downloadIcs(dateStr, bucket, plan);
+    row.append(left, details, btn);
     list.append(row);
   });
 }
 
-function downloadIcs(dateStr, bucket) {
+function downloadIcs(dateStr, bucket, plan = "") {
   const day = parseKey(dateStr);
   const start = new Date(day); start.setHours(bucket.startHour, 0, 0, 0);
   const end = new Date(day); end.setHours(bucket.endHour, 0, 0, 0);
   const fmt = (d) => d.toISOString().replace(/[-:]/g, "").split(".")[0] + "Z";
-  const ics = [
+  const text = (t) => t.replace(/([\;,])/g, "\\$1").replace(/\r?\n/g, "\\n");
+  const firstLine = plan.split(/\r?\n/)[0].slice(0, 60);
+  // The name always starts with "QT", which is how a later calendar sync
+  // recognises this entry as the plan itself and not something clashing with it.
+  const lines = [
     "BEGIN:VCALENDAR", "VERSION:2.0", "PRODID:-//q-time-planner//EN", "BEGIN:VEVENT",
     `UID:${dateStr}-${bucket.key}@q-time-planner`,
     `DTSTAMP:${fmt(new Date())}`,
     `DTSTART:${fmt(start)}`, `DTEND:${fmt(end)}`,
-    "SUMMARY:QT", "END:VEVENT", "END:VCALENDAR",
-  ].join("\r\n");
-  const blob = new Blob([ics], { type: "text/calendar" });
+    `SUMMARY:${text(firstLine ? `QT: ${firstLine}` : "QT")}`,
+  ];
+  if (plan) lines.push(`DESCRIPTION:${text(plan)}`);
+  lines.push("END:VEVENT", "END:VCALENDAR");
+  const blob = new Blob([lines.join("\r\n")], { type: "text/calendar" });
   const a = document.createElement("a");
   a.href = URL.createObjectURL(blob);
   a.download = `qt-${dateStr}.ics`;
@@ -1552,9 +1674,10 @@ function downloadIcs(dateStr, bucket) {
    KIDS DAYS
    A tap-to-set calendar of the days this person has their kids, for
    patterns that change week to week and don't suit a repeating event.
-   Each day is stored as an all-day "kids" event with source "manual",
-   so it shows on the planner as that person's kids badge, is never
-   touched by a calendar sync, and stays out of My events.
+   A day can be all day, morning only, or afternoon and evening (for
+   handover days). Each is stored as a "kids" event with source "manual",
+   so it shows on the planner as that person's kids badge on the slots it
+   covers, is never touched by a calendar sync, and stays out of My events.
    The same screen compares those days with the "Free, kids with me"
    events in the person's synced calendars, and can download the days
    as calendar entries.
@@ -1562,21 +1685,35 @@ function downloadIcs(dateStr, bucket) {
 const KID_TITLE_KEY = `meetup-kids-title-${ME}`;
 const kidsTitle = () => (localStorage.getItem(KID_TITLE_KEY) || "").trim() || "Kids with me";
 const kidDayId = (key) => `kidday-${key}`;
-function kidDayDoc(key) {
-  const start = parseKey(key);
-  const end = new Date(start.getFullYear(), start.getMonth(), start.getDate() + 1);
-  return { title: kidsTitle(), start: start.toISOString(), end: end.toISOString(), tag: "kids", source: "manual", day: key };
+// Handover point: where the first slot (morning) ends.
+const KID_FIRST_HOUR = Math.min(...CONFIG.buckets.map(b => b.startHour));
+const KID_SPLIT_HOUR = CONFIG.buckets[0].endHour;
+const KID_LAST_HOUR = Math.max(...CONFIG.buckets.map(b => b.endHour));
+const KID_PARTS = [
+  ["all", "All day"],
+  ["am", "Morning"],
+  ["pm", "Afternoon & evening"],
+];
+const KID_WORDS = { all: "all day", am: "morning only", pm: "afternoon and evening" };
+const kidWords = (part) => KID_WORDS[part] || "nothing";
+
+function kidDayDoc(key, part) {
+  const day = parseKey(key);
+  const at = (h) => new Date(day.getFullYear(), day.getMonth(), day.getDate(), h);
+  const start = part === "pm" ? at(KID_SPLIT_HOUR) : at(0);
+  const end = part === "am" ? at(KID_SPLIT_HOUR) : at(24);
+  return { title: kidsTitle(), start: start.toISOString(), end: end.toISOString(), tag: "kids", source: "manual", day: key, part };
 }
 
 async function openKidsDays() {
-  const manual = new Set();
+  const manual = new Map(); // day -> "all" | "am" | "pm"
   const fromCalendar = [];
   try {
     const snap = await getDocs(collection(db, `people/${ME}/events`));
     snap.forEach(d => {
       const e = d.data();
       if (e.tag !== "kids") return;
-      if (e.source === "manual") manual.add(e.day || d.id.replace(/^kidday-/, ""));
+      if (e.source === "manual") manual.set(e.day || d.id.replace(/^kidday-/, ""), e.part || "all");
       else fromCalendar.push({ start: new Date(e.start), end: new Date(e.end) });
     });
   } catch (e) {
@@ -1586,20 +1723,36 @@ async function openKidsDays() {
 
   const now = new Date();
   const todayKey = dateKey(now);
-  const firstHour = Math.min(...CONFIG.buckets.map(b => b.startHour));
-  const lastHour = Math.max(...CONFIG.buckets.map(b => b.endHour));
-  // A calendar event counts for a day if it covers any of that day's slots.
-  const inCalendar = (day) => {
-    const a = new Date(day); a.setHours(firstHour, 0, 0, 0);
-    const b = new Date(day); b.setHours(lastHour, 0, 0, 0);
+  // What the synced calendar says for a day, judged on the slots it covers.
+  const covers = (day, fromHour, toHour) => {
+    const a = new Date(day); a.setHours(fromHour, 0, 0, 0);
+    const b = new Date(day); b.setHours(toHour, 0, 0, 0);
     return fromCalendar.some(iv => iv.start < b && iv.end > a);
   };
+  const calendarPart = (day) => {
+    const am = covers(day, KID_FIRST_HOUR, KID_SPLIT_HOUR);
+    const pm = covers(day, KID_SPLIT_HOUR, KID_LAST_HOUR);
+    return am && pm ? "all" : am ? "am" : pm ? "pm" : null;
+  };
   let offset = 0;
+  let brush = "all";
 
   openSheet(card => {
     card.style.setProperty("--kid", `var(--kid-${Math.max(0, CONFIG.people.findIndex(p => p.id === ME))})`);
     card.append(el("h3", "", "Days I have the kids"));
-    card.append(el("p", "sub", "Tap a day to switch it on or off. It saves straight away and shows on the planner as your kids badge."));
+    card.append(el("p", "sub", "Pick what a tap sets, then tap the days. Tap a day again to clear it. Each tap saves straight away."));
+
+    const seg = el("div", "seg");
+    seg.setAttribute("role", "group");
+    seg.setAttribute("aria-label", "A tap sets");
+    const segButtons = KID_PARTS.map(([part, text]) => {
+      const b = el("button", "", text);
+      b.type = "button";
+      b.onclick = () => { brush = part; refresh(); };
+      seg.append(b);
+      return [part, b];
+    });
+    card.append(seg);
 
     const nav = el("div", "monthnav");
     const prev = el("button", "round", "‹"); prev.type = "button"; prev.setAttribute("aria-label", "Previous month");
@@ -1625,20 +1778,25 @@ async function openKidsDays() {
     actions.append(download, done);
     card.append(actions);
 
-    async function setDay(dayKey, on) {
-      if (on) manual.add(dayKey); else manual.delete(dayKey);
+    async function setDay(dayKey, part) {
+      const before = manual.get(dayKey) || null;
+      if (part) manual.set(dayKey, part); else manual.delete(dayKey);
       refresh();
       try {
-        await commitWrites([[doc(db, `people/${ME}/events/${kidDayId(dayKey)}`), on ? kidDayDoc(dayKey) : null]]);
+        await commitWrites([[doc(db, `people/${ME}/events/${kidDayId(dayKey)}`), part ? kidDayDoc(dayKey, part) : null]]);
         renderGrid();
       } catch (e) {
-        if (on) manual.delete(dayKey); else manual.add(dayKey);
+        if (before) manual.set(dayKey, before); else manual.delete(dayKey);
         refresh();
         toast("Couldn't save that day. Check your connection and try again.");
       }
     }
 
     function refresh() {
+      segButtons.forEach(([part, b]) => {
+        b.classList.toggle("on", part === brush);
+        b.setAttribute("aria-pressed", String(part === brush));
+      });
       const month = new Date(now.getFullYear(), now.getMonth() + offset, 1);
       label.textContent = month.toLocaleString("en-GB", { month: "long", year: "numeric" });
       prev.disabled = offset <= 0;
@@ -1652,25 +1810,23 @@ async function openKidsDays() {
       for (let d = 1; d <= days; d++) {
         const day = new Date(month.getFullYear(), month.getMonth(), d);
         const dayKey = dateKey(day);
-        const on = manual.has(dayKey);
-        const cal = compare && inCalendar(day);
+        const here = manual.get(dayKey) || null;
+        const cal = compare ? calendarPart(day) : null;
         const b = el("button", "kd-day", String(d));
         b.type = "button";
         b.dataset.day = dayKey;
-        if (on) b.classList.add("on");
+        if (here) b.classList.add(`on-${here}`);
         if (cal) b.classList.add("cal");
-        if (compare && on !== cal && dayKey >= todayKey) b.classList.add("diff");
+        if (compare && here !== cal && dayKey >= todayKey) b.classList.add("diff");
         if (dayKey < todayKey) b.disabled = true;
-        b.setAttribute("aria-pressed", String(on));
-        b.setAttribute("aria-label", `${longDate(day)}: ${on ? "kids with me" : "not set"}` +
-          (compare ? `, ${cal ? "in" : "not in"} your synced calendar` : ""));
-        b.onclick = () => setDay(dayKey, !on);
+        b.setAttribute("aria-label", `${longDate(day)}: ${here ? `kids with me ${kidWords(here)}` : "not set"}` +
+          (compare ? `; synced calendar has ${kidWords(cal)}` : ""));
+        b.onclick = () => setDay(dayKey, here === brush ? null : brush);
         grid.append(b);
       }
 
-      key.textContent = compare
-        ? "Filled: set here. Dot: in your synced calendar. Amber ring: the two disagree."
-        : "Filled: set here.";
+      key.textContent = "Filled: all day. Band at the top: morning only. Band at the bottom: afternoon and evening." +
+        (compare ? " Dot: in your synced calendar. Amber outline: the two disagree." : "");
 
       diffBox.replaceChildren();
       diffBox.append(el("h4", "", "Compared with your synced calendar"));
@@ -1684,20 +1840,20 @@ async function openKidsDays() {
       for (let i = 0; i <= CONFIG.monthsAhead * 31; i++) {
         const day = new Date(now.getFullYear(), now.getMonth(), now.getDate() + i);
         const dayKey = dateKey(day);
-        const on = manual.has(dayKey), cal = inCalendar(day);
-        if (on !== cal) diffs.push({ day, dayKey, on });
+        const here = manual.get(dayKey) || null, cal = calendarPart(day);
+        if (here !== cal) diffs.push({ day, dayKey, here, cal });
       }
       if (!diffs.length) {
         diffBox.append(el("p", "empty", "They match. Every day set here is in your calendar, and the other way round."));
         return;
       }
       diffBox.append(el("p", "empty", `${diffs.length} ${diffs.length === 1 ? "day doesn't" : "days don't"} match.`));
-      diffs.slice(0, 14).forEach(({ day, dayKey, on }) => {
+      diffs.slice(0, 14).forEach(({ day, dayKey, here, cal }) => {
         const line = el("div", "kd-line");
-        line.append(el("span", "", `${shortDate(day)}: ${on ? "set here, not in your calendar" : "in your calendar, not set here"}`));
-        const fix = el("button", "linkbtn", on ? "Remove here" : "Add here");
+        line.append(el("span", "", `${shortDate(day)}: here ${kidWords(here)}, calendar ${kidWords(cal)}`));
+        const fix = el("button", "linkbtn", "Use calendar's");
         fix.type = "button";
-        fix.onclick = () => setDay(dayKey, !on);
+        fix.onclick = () => setDay(dayKey, cal);
         line.append(fix);
         diffBox.append(line);
       });
@@ -1707,27 +1863,28 @@ async function openKidsDays() {
     prev.onclick = () => { offset--; refresh(); };
     next.onclick = () => { offset++; refresh(); };
     download.onclick = () => {
-      const keys = [...manual].filter(k => k >= todayKey).sort();
+      const keys = [...manual.keys()].filter(k => k >= todayKey).sort();
       if (!keys.length) { toast("No days are set yet."); return; }
       const title = kidsTitle();
       const esc = (t) => t.replace(/([\\;,])/g, "\\$1");
       const ymd = (d) => dateKey(d).replace(/-/g, "");
-      const stampNow = new Date().toISOString().replace(/[-:]/g, "").split(".")[0] + "Z";
+      const utc = (d) => d.toISOString().replace(/[-:]/g, "").split(".")[0] + "Z";
       const lines = ["BEGIN:VCALENDAR", "VERSION:2.0", "PRODID:-//q-time-planner//EN"];
       keys.forEach(k => {
-        const start = parseKey(k);
-        const end = new Date(start.getFullYear(), start.getMonth(), start.getDate() + 1);
-        lines.push(
-          "BEGIN:VEVENT",
-          // The same day always gets the same UID, so adding the file twice doesn't duplicate it.
-          `UID:kidday-${k}-${ME}@q-time-planner`,
-          `DTSTAMP:${stampNow}`,
-          `DTSTART;VALUE=DATE:${ymd(start)}`,
-          `DTEND;VALUE=DATE:${ymd(end)}`,
-          `SUMMARY:${esc(title)}`,
-          "TRANSP:TRANSPARENT",
-          "END:VEVENT"
-        );
+        const day = parseKey(k);
+        const at = (h) => new Date(day.getFullYear(), day.getMonth(), day.getDate(), h);
+        const part = manual.get(k);
+        // The same day always gets the same UID, so adding the file again
+        // updates the entry instead of duplicating it.
+        lines.push("BEGIN:VEVENT", `UID:kidday-${k}-${ME}@q-time-planner`, `DTSTAMP:${utc(new Date())}`);
+        if (part === "all") {
+          lines.push(`DTSTART;VALUE=DATE:${ymd(day)}`, `DTEND;VALUE=DATE:${ymd(at(24))}`);
+        } else {
+          const from = part === "am" ? KID_FIRST_HOUR : KID_SPLIT_HOUR;
+          const to = part === "am" ? KID_SPLIT_HOUR : KID_LAST_HOUR;
+          lines.push(`DTSTART:${utc(at(from))}`, `DTEND:${utc(at(to))}`);
+        }
+        lines.push(`SUMMARY:${esc(title)}`, "TRANSP:TRANSPARENT", "END:VEVENT");
       });
       lines.push("END:VCALENDAR");
       const a = document.createElement("a");
