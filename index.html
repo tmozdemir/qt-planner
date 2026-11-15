@@ -224,6 +224,56 @@
   .kid-0 { left: -5px; background: var(--kid-0); }
   .kid-1 { right: -5px; background: var(--kid-1); }
   .legend .kid { position: static; flex: none; border: 0; width: 18px; height: 18px; }
+
+  /* --- Event chooser: one block per event name, dates expandable --- */
+  .tag-item { display: block; padding: 12px 0; }
+  .tag-item select { display: block; width: 100%; max-width: none; margin-top: 8px; }
+  .tag-item .linkbtn { margin-top: 4px; }
+  .dates { margin-top: 6px; padding-left: 12px; border-left: 3px solid var(--line); }
+  .date-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 4px 0; font-size: 14px; }
+  .date-row select { width: auto; max-width: 58%; margin-top: 0; font-size: 13px; padding: 6px; }
+
+  /* --- Calendar picker --- */
+  .conn { align-items: flex-start; }
+  .conn-links { display: flex; gap: 14px; }
+  .calpick { display: flex; align-items: center; gap: 12px; padding: 12px 0; border-top: 1px solid var(--line); font-size: 15px; cursor: pointer; }
+  .calpick input { width: 22px; height: 22px; flex: none; accent-color: var(--night); }
+  .calpick span { overflow-wrap: anywhere; }
+
+  /* --- Kids days calendar --- */
+  .kd-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 5px; }
+  .kd-wd { text-align: center; font-size: 12px; font-weight: 700; color: var(--muted); padding-bottom: 2px; }
+  .kd-day {
+    appearance: none; position: relative; min-height: 46px; border-radius: 10px; border: 1px solid var(--line);
+    background: #fff; color: var(--night); font: inherit; font-size: 15px; font-weight: 600; cursor: pointer;
+    -webkit-tap-highlight-color: transparent; touch-action: manipulation;
+  }
+  .kd-day.on { background: var(--kid); border-color: var(--kid); color: #fff; }
+  .kd-day.cal::after {
+    content: ""; position: absolute; left: 50%; bottom: 5px; width: 6px; height: 6px; margin-left: -3px;
+    border-radius: 50%; background: currentColor;
+  }
+  .kd-day.diff { box-shadow: 0 0 0 3px var(--ask-edge); }
+  .kd-day:disabled { opacity: 0.35; cursor: default; }
+  .kd-day:focus-visible { outline: 3px solid var(--night); outline-offset: 2px; }
+  .kd-key { font-size: 13px; color: var(--muted); margin: 10px 0 0; }
+  .kd-diff { margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--line); }
+  .kd-diff h4 { margin: 0 0 6px; font-size: 15px; }
+  .kd-line { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 6px 0; font-size: 14px; border-top: 1px solid var(--line); }
+  .kd-line .linkbtn { flex: none; }
+  .kd-field { display: block; margin-top: 14px; font-size: 13px; color: var(--muted); }
+  .kd-field input { display: block; width: 100%; margin-top: 4px; font: inherit; font-size: 15px; padding: 10px; border-radius: 10px; border: 1px solid var(--line); color: var(--night); }
+  #sheet .actions { flex-wrap: wrap; }
+
+  /* --- Bank holidays --- */
+  .hol { margin: 0 0 4px 60px; font-size: 12px; font-weight: 700; color: #9a4410; }
+  .hol.mon { margin-top: 16px; }
+  .dchip.hol-day { background: #ffe6d1; border-color: #f0b488; }
+  .dchip.hol-day.today { background: var(--night); border-color: var(--night); }
+
+  /* Messages appear at the top so they never cover the buttons of a bottom sheet. */
+  #toast { top: 14px; bottom: auto; transform: translate(-50%, -20px); }
+  #toast.show { transform: translate(-50%, 0); }
 </style>
 </head>
 <body>
@@ -344,6 +394,9 @@ const CONFIG = {
     { key: "night", label: "Night", startHour: 18, endHour: 23 },
   ],
   monthsAhead: 6,
+  // Which UK bank holiday lists to mark on the grid. Any of:
+  // "scotland", "england-and-wales", "northern-ireland".
+  holidayRegions: ["scotland", "england-and-wales"],
 };
 
 /* =====================================================================
@@ -449,6 +502,7 @@ onAuthStateChanged(auth, (user) => {
    iCloud: app-specific password, sent to the relay function which
    speaks CalDAV to caldav.icloud.com on the page's behalf (browsers
    can't call it directly — no CORS support).
+   Each connection remembers which of its calendars are switched on.
    ===================================================================== */
 const CONNECTED_KEY = `meetup-connections-${ME}`;
 const AUTO_SYNC_AFTER_MS = 6 * 60 * 60 * 1000;
@@ -466,14 +520,17 @@ function saveConnections(list) {
   renderConnectRow();
 }
 const connName = (c) => c.email || c.appleId;
+const typeLabel = (c) => (c.type === "google" ? "Google" : "iCloud");
+const sameConn = (a, b) => a.type === b.type && connName(a) === connName(b);
+const findConnection = (conn) => getConnections().find(c => sameConn(c, conn));
 function upsertConnection(conn) {
   const list = getConnections();
-  const i = list.findIndex(c => c.type === conn.type && connName(c) === connName(conn));
+  const i = list.findIndex(c => sameConn(c, conn));
   if (i >= 0) list[i] = { ...list[i], ...conn }; else list.push(conn);
   saveConnections(list);
 }
 function forgetConnection(conn) {
-  saveConnections(getConnections().filter(c => !(c.type === conn.type && connName(c) === connName(conn))));
+  saveConnections(getConnections().filter(c => !sameConn(c, conn)));
   toast(`Forgot ${connName(conn)} on this device. Events already synced stay in the planner.`);
 }
 
@@ -485,18 +542,30 @@ function renderConnectRow() {
   getConnections().forEach(c => {
     const row = el("div", "conn");
     const who = el("div", "who");
-    who.append(el("b", "", `${c.type === "google" ? "Google" : "iCloud"} · ${connName(c)}`));
+    who.append(el("b", "", `${typeLabel(c)} · ${connName(c)}`));
     let status = c.lastSync ? `Synced ${shortDate(new Date(c.lastSync))}, ${fmtClock(new Date(c.lastSync))}` : "Not synced yet";
-    if (c.type === "icloud") status += c.appPassword ? " · password remembered" : "";
+    if (c.type === "icloud" && c.appPassword) status += " · password remembered";
     who.append(el("small", "", status));
+
+    const links = el("div", "conn-links");
+    const cals = Object.values(c.cals || {});
+    if (cals.length) {
+      const off = cals.filter(cal => !cal.on).length;
+      const pick = el("button", "linkbtn", off ? `Calendars (${off} off)` : "Calendars");
+      pick.type = "button";
+      pick.onclick = () => openCalendarPicker(c);
+      links.append(pick);
+    }
+    const forget = el("button", "linkbtn", "Forget");
+    forget.type = "button";
+    forget.onclick = () => forgetConnection(c);
+    links.append(forget);
+    who.append(links);
 
     const sync = el("button", "btn small", "Sync");
     sync.type = "button";
     sync.onclick = () => runSync(sync, () => (c.type === "google" ? syncGoogle(c.email) : syncICloud(c)));
-    const forget = el("button", "linkbtn", "Forget");
-    forget.type = "button";
-    forget.onclick = () => forgetConnection(c);
-    row.append(who, sync, forget);
+    row.append(who, sync);
     wrap.append(row);
   });
 
@@ -511,15 +580,55 @@ function renderConnectRow() {
   const mine = el("button", "btn ghost", "My events");
   mine.type = "button";
   mine.onclick = openMyEvents;
-  buttons.append(addGoogle, addICloud, mine);
+  const kidsDays = el("button", "btn ghost", "Kids days");
+  kidsDays.type = "button";
+  kidsDays.onclick = openKidsDays;
+  buttons.append(addGoogle, addICloud, mine, kidsDays);
   wrap.append(buttons);
+}
+
+/* Which of an account's calendars feed the planner. Saving syncs straight
+   away, which also removes events from any calendar just switched off. */
+function openCalendarPicker(conn) {
+  openSheet(card => {
+    card.append(el("h3", "", "Calendars to include"));
+    card.append(el("p", "sub", `${typeLabel(conn)} · ${connName(conn)}. Untick any calendar you don't want in the planner.`));
+    const boxes = [];
+    Object.entries(conn.cals)
+      .sort((a, b) => a[1].name.localeCompare(b[1].name))
+      .forEach(([id, cal]) => {
+        const label = el("label", "calpick");
+        const box = document.createElement("input");
+        box.type = "checkbox";
+        box.checked = !!cal.on;
+        label.append(box, el("span", "", cal.name));
+        boxes.push([id, box]);
+        card.append(label);
+      });
+    const actions = el("div", "actions");
+    const cancel = el("button", "btn ghost", "Cancel");
+    cancel.type = "button";
+    cancel.onclick = closeSheet;
+    const save = el("button", "btn", "Save and sync");
+    save.type = "button";
+    save.onclick = () => {
+      const cals = {};
+      boxes.forEach(([id, box]) => cals[id] = { name: conn.cals[id].name, on: box.checked });
+      upsertConnection({ ...conn, cals });
+      closeSheet();
+      const fresh = findConnection(conn);
+      runSync(null, () => (conn.type === "google" ? syncGoogle(conn.email) : syncICloud(fresh)));
+    };
+    actions.append(cancel, save);
+    card.append(actions);
+  });
 }
 
 /* Runs one sync, shows progress on the button, and reports the outcome. */
 async function runSync(button, job) {
-  const label = button.textContent;
-  button.disabled = true;
-  button.textContent = "Syncing…";
+  const label = button?.textContent;
+  if (button) { button.disabled = true; button.textContent = "Syncing…"; }
+  else toast("Syncing…");
   try {
     const result = await job();
     if (result) toast(syncSummary(result));
@@ -527,8 +636,7 @@ async function runSync(button, job) {
     toast(`Sync didn't work: ${e.message}`);
   }
   // renderConnectRow may already have replaced this button; harmless if so.
-  button.disabled = false;
-  button.textContent = label;
+  if (button) { button.disabled = false; button.textContent = label; }
 }
 function syncSummary({ total, review }) {
   if (!total) return "Synced. No events found in the next six months.";
@@ -571,18 +679,27 @@ async function syncGoogle(emailHint) {
   const base = "https://www.googleapis.com/calendar/v3";
   const primary = await googleGet(`${base}/calendars/primary`, token);
   const email = primary.id || emailHint || "account";
+  const prev = findConnection({ type: "google", email })?.cals || {};
 
-  // Every calendar ticked in this Google account — not just the main one —
-  // so shared calendars (a family or co-parenting calendar) come through too.
+  // Every calendar in the account is listed so it can be switched on or off.
+  // New ones start on if they're ticked in Google Calendar itself, except
+  // Google's own holiday and birthday calendars, which start off.
   const list = await googleGet(`${base}/users/me/calendarList?maxResults=250`, token);
-  const calendars = (list.items || []).filter(c =>
-    c.selected !== false && !/#(holiday|contacts|weather)@/.test(c.id));
+  const cals = {};
+  (list.items || []).forEach(c => {
+    const builtIn = /#(holiday|contacts|weather)@/.test(c.id);
+    cals[c.id] = {
+      name: c.summaryOverride || c.summary || c.id,
+      on: prev[c.id] ? !!prev[c.id].on : (c.selected !== false && !builtIn),
+    };
+  });
 
   const events = [];
-  for (const cal of calendars) {
+  for (const [calId, cal] of Object.entries(cals)) {
+    if (!cal.on) continue;
     let pageToken = "";
     do {
-      const url = new URL(`${base}/calendars/${encodeURIComponent(cal.id)}/events`);
+      const url = new URL(`${base}/calendars/${encodeURIComponent(calId)}/events`);
       url.searchParams.set("timeMin", rangeStart.toISOString());
       url.searchParams.set("timeMax", rangeEnd.toISOString());
       url.searchParams.set("singleEvents", "true");
@@ -590,32 +707,33 @@ async function syncGoogle(emailHint) {
       if (pageToken) url.searchParams.set("pageToken", pageToken);
       const data = await googleGet(url, token);
       (data.items || [])
-        .filter(e => e.status !== "cancelled" && (e.start?.dateTime || e.start?.date))
+        .filter(e => e.status !== "cancelled" && e.eventType !== "birthday" && (e.start?.dateTime || e.start?.date))
         .forEach(e => events.push({
           id: e.id,
           title: e.summary || "(no title)",
           start: e.start.dateTime || e.start.date,
           end: e.end?.dateTime || e.end?.date || e.start.dateTime || e.start.date,
           recurringEventId: e.recurringEventId || e.id,
+          cal: cal.name,
         }));
       pageToken = data.nextPageToken || "";
     } while (pageToken);
   }
 
   const result = await stageEvents(events, `google:${email}`);
-  upsertConnection({ type: "google", email, lastSync: Date.now() });
+  upsertConnection({ type: "google", email, lastSync: Date.now(), cals });
   return result;
 }
 
 /* --- iCloud --- */
-async function fetchICloudEvents(appleId, appPassword) {
+async function fetchICloud(appleId, appPassword, skip) {
   let res;
   try {
     res = await fetch(CONFIG.functions.icloudEventsUrl, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        appleId, appPassword,
+        appleId, appPassword, skip,
         rangeStart: rangeStart.toISOString(),
         rangeEnd: rangeEnd.toISOString(),
       }),
@@ -625,16 +743,18 @@ async function fetchICloudEvents(appleId, appPassword) {
   }
   let body = null;
   try { body = await res.json(); } catch (_) {}
-  if (!res.ok || !Array.isArray(body)) {
-    throw new Error(body?.error || `the server returned an error (${res.status})`);
-  }
-  return body; // relay normalises to the same shape as the Google events
+  if (!res.ok) throw new Error(body?.error || `the server returned an error (${res.status})`);
+  // The first version of the server sent a bare list of events; the current
+  // one also sends the account's calendars so they can be switched on or off.
+  if (Array.isArray(body)) return { events: body, calendars: null };
+  if (Array.isArray(body?.events)) return body;
+  throw new Error("the server sent something unexpected");
 }
 
 async function connectICloud() {
   const appleId = (prompt("Your Apple ID email:") || "").trim();
   if (!appleId) return null;
-  return syncICloud({ type: "icloud", appleId });
+  return syncICloud(findConnection({ type: "icloud", appleId }) || { type: "icloud", appleId });
 }
 
 async function syncICloud(conn, { quiet = false } = {}) {
@@ -645,10 +765,22 @@ async function syncICloud(conn, { quiet = false } = {}) {
     appPassword = (prompt(`App-specific password for ${conn.appleId} (create one at account.apple.com):`) || "").trim();
     if (!appPassword) return null;
   }
-  const events = await fetchICloudEvents(conn.appleId, appPassword);
+  const prev = conn.cals || {};
+  const skip = Object.keys(prev).filter(id => !prev[id].on);
+  const data = await fetchICloud(conn.appleId, appPassword, skip);
+
+  let cals = null;
+  if (data.calendars) {
+    cals = {};
+    data.calendars.forEach(c => cals[c.id] = { name: c.name, on: prev[c.id] ? !!prev[c.id].on : true });
+  }
+  const events = data.events
+    .filter(ev => !(cals && ev.calendarId && cals[ev.calendarId] && !cals[ev.calendarId].on))
+    .map(ev => ({ ...ev, cal: ev.calendar }));
   const result = await stageEvents(events, `icloud:${conn.appleId}`);
 
   const update = { type: "icloud", appleId: conn.appleId, lastSync: Date.now() };
+  if (cals) update.cals = cals;
   // Remembering is opt-in, and only offered once the password has worked.
   if (typed && confirm(
     "Remember this app password on this device?\n\n" +
@@ -676,17 +808,20 @@ async function autoSync() {
 /* =====================================================================
    EVENT CHOICES
    Each synced event carries one choice:
-     busy  — blocks the slot
-     free  — ignored
-     kids  — doesn't block, but the slot shows that person has their kids
-   A choice is made once per event title and remembered as a rule, so
-   repeats and future events with the same title follow it. Events that
-   already have a choice keep it on every later sync.
+     busy      — blocks the slot
+     free      — ignored
+     kids      — doesn't block, but the slot shows that person has their kids
+     withkids  — blocks only when it falls inside one of that person's
+                 "kids" periods (a lesson you only take them to on your days)
+   A choice made for a whole title is remembered as a rule, so repeats and
+   future events with that title follow it. Individual dates can differ.
+   Events that already have a choice keep it on every later sync.
    ===================================================================== */
 const CHOICES = [
   ["busy", "Busy"],
-  ["free", "Actually free"],
+  ["free", "Free"],
   ["kids", "Free, kids with me"],
+  ["withkids", "Busy only if kids with me"],
 ];
 const safeId = (id) => String(id).replace(/\//g, "_");
 const ruleId = (key) => encodeURIComponent(String(key)).replace(/\./g, "%2E").slice(0, 900);
@@ -703,9 +838,29 @@ async function commitWrites(writes) {
   }
 }
 
+function eventDoc(ev, tag) {
+  const data = { title: ev.title, start: ev.start, end: ev.end, tag };
+  if (ev.source) data.source = ev.source;
+  if (ev.cal) data.cal = ev.cal;
+  return data;
+}
+
 /* `source` names the calendar account the events came from, so a later sync
    of the same account can clear out events that no longer exist there. */
-async function stageEvents(events, source) {
+/* Birthday reminders (all-day entries with "birthday" in the name) are left
+   out altogether. A timed event such as a birthday dinner still comes through. */
+function isAllDay(ev) {
+  if (/^\d{4}-\d{2}-\d{2}$/.test(String(ev.start))) return true;
+  const start = new Date(ev.start), end = new Date(ev.end);
+  const midnight = (start.getUTCHours() === 0 && start.getUTCMinutes() === 0) ||
+                   (start.getHours() === 0 && start.getMinutes() === 0);
+  const length = end - start;
+  return midnight && length > 0 && length % 86400000 === 0;
+}
+const isBirthdayReminder = (ev) => /birthday/i.test(ev.title || "") && isAllDay(ev);
+
+async function stageEvents(allEvents, source) {
+  const events = allEvents.filter(ev => !isBirthdayReminder(ev));
   const [rulesSnap, mineSnap] = await Promise.all([
     getDocs(collection(db, `people/${ME}/rules`)),
     getDocs(collection(db, `people/${ME}/events`)),
@@ -717,26 +872,23 @@ async function stageEvents(events, source) {
 
   const writes = [];
   const toReview = [];
-  for (const ev of events) {
-    const id = safeId(ev.id);
-    const tag = existing[id]?.tag
+  for (const raw of events) {
+    const ev = { ...raw, id: safeId(raw.id), source };
+    const tag = existing[ev.id]?.tag
       || rules[titleRule(ev.title)]
       || rules[ruleId(ev.recurringEventId || ev.title)];
-    if (tag) {
-      writes.push([doc(db, `people/${ME}/events/${id}`), { title: ev.title, start: ev.start, end: ev.end, tag, source }]);
-    } else {
-      toReview.push({ id, title: ev.title, start: ev.start, end: ev.end, source });
-    }
+    if (tag) writes.push([doc(db, `people/${ME}/events/${ev.id}`), eventDoc(ev, tag)]);
+    else toReview.push({ id: ev.id, title: ev.title, start: ev.start, end: ev.end, source, cal: ev.cal });
   }
-  // Events this account synced before that it no longer has (deleted or moved).
+  // Events this account synced before that it no longer has: deleted, moved,
+  // or in a calendar that has since been switched off.
   const fetched = new Set(events.map(ev => safeId(ev.id)));
   Object.entries(existing).forEach(([id, data]) => {
     if (data.source === source && !fetched.has(id)) writes.push([doc(db, `people/${ME}/events/${id}`), null]);
   });
   await commitWrites(writes);
 
-  const seen = new Set(toReview.map(e => e.id));
-  pendingEvents = pendingEvents.filter(e => !seen.has(e.id)).concat(toReview);
+  pendingEvents = pendingEvents.filter(e => e.source !== source).concat(toReview);
   showReviewBanner();
   await renderGrid();
   return { total: events.length, review: groupByTitle(toReview).length };
@@ -758,69 +910,125 @@ function groupByTitle(events) {
     groups.get(title).events.push(ev);
   });
   const list = [...groups.values()];
-  list.forEach(g => {
-    g.events.sort((a, b) => new Date(a.start) - new Date(b.start));
-    // The group's current choice is the one on its next occurrence.
-    g.tag = g.events[0].tag || "busy";
-  });
+  list.forEach(g => g.events.sort((a, b) => new Date(a.start) - new Date(b.start)));
   return list.sort((a, b) => new Date(a.events[0].start) - new Date(b.events[0].start));
+}
+
+/* Where an event came from, in words: the calendar's name when known. */
+function sourceLabel(ev) {
+  const [kind, ...rest] = String(ev.source || "").split(":");
+  const account = rest.join(":");
+  const type = kind === "google" ? "Google" : kind === "icloud" ? "iCloud" : "";
+  if (ev.cal) return type ? `${ev.cal} (${type})` : ev.cal;
+  return type ? `${type} · ${account}` : "";
+}
+
+function choiceSelect(label) {
+  const select = document.createElement("select");
+  select.setAttribute("aria-label", label);
+  CHOICES.forEach(([value, text]) => {
+    const o = document.createElement("option");
+    o.value = value; o.textContent = text;
+    select.append(o);
+  });
+  return select;
+}
+function setMixed(select, mixed) {
+  let o = select.querySelector('option[value="mixed"]');
+  if (mixed && !o) {
+    o = document.createElement("option");
+    o.value = "mixed"; o.textContent = "Different on different dates";
+    select.append(o);
+  }
+  if (!mixed && o) o.remove();
 }
 
 /* One chooser serves both jobs: first-time review, and changing choices later. */
 let chooser = null;
 
-function openChooser({ title, sub, groups, onlyChanged, emptyText }) {
-  chooser = { groups, onlyChanged };
+function openChooser({ title, sub, groups, review, emptyText }) {
+  chooser = { groups, review };
   $("tagTitle").textContent = title;
   $("tagSub").textContent = sub;
   const list = $("tagList");
   list.replaceChildren();
   if (!groups.length) list.append(el("p", "empty", emptyText));
 
-  groups.forEach((g, i) => {
+  groups.forEach(g => {
+    g.choices = g.events.map(ev => ev.tag || "busy");
     const row = el("div", "tag-item");
-    const left = el("div", "tag-text");
     const first = new Date(g.events[0].start);
-    left.append(
+    const where = [...new Set(g.events.map(sourceLabel).filter(Boolean))].join(", ");
+    row.append(
       el("div", "tag-title", g.title),
       el("div", "meta", `${shortDate(first)}, ${fmtClock(first)}` +
-        (g.events.length > 1 ? ` · and ${g.events.length - 1} more` : ""))
+        (g.events.length > 1 ? ` · and ${g.events.length - 1} more` : "") +
+        (where ? ` · ${where}` : ""))
     );
-    const select = document.createElement("select");
-    select.dataset.i = String(i);
-    select.setAttribute("aria-label", `Choice for ${g.title}`);
-    CHOICES.forEach(([value, label]) => {
-      const o = document.createElement("option");
-      o.value = value; o.textContent = label;
-      select.append(o);
-    });
-    select.value = g.tag;
-    row.append(left, select);
+
+    const groupSel = choiceSelect(`Choice for ${g.title}`);
+    let dates = null;
+    const refresh = () => {
+      const same = g.choices.every(c => c === g.choices[0]);
+      setMixed(groupSel, !same);
+      groupSel.value = same ? g.choices[0] : "mixed";
+    };
+    groupSel.onchange = () => {
+      if (groupSel.value === "mixed") return;
+      g.choices = g.choices.map(() => groupSel.value);
+      if (dates) dates.querySelectorAll("select").forEach(s => s.value = groupSel.value);
+      refresh();
+    };
+    row.append(groupSel);
+
+    if (g.events.length > 1) {
+      const toggle = el("button", "linkbtn", "Choose date by date");
+      toggle.type = "button";
+      dates = el("div", "dates");
+      dates.hidden = true;
+      toggle.onclick = () => {
+        if (!dates.childElementCount) {
+          g.events.forEach((ev, k) => {
+            const when = new Date(ev.start);
+            const line = el("div", "date-row");
+            const sel = choiceSelect(`Choice for ${g.title} on ${shortDate(when)}`);
+            sel.value = g.choices[k];
+            sel.onchange = () => { g.choices[k] = sel.value; refresh(); };
+            line.append(el("span", "", `${shortDate(when)}, ${fmtClock(when)}`), sel);
+            dates.append(line);
+          });
+        }
+        dates.hidden = !dates.hidden;
+        toggle.textContent = dates.hidden ? "Choose date by date" : "Hide dates";
+      };
+      row.append(toggle, dates);
+    }
+    refresh();
     list.append(row);
   });
   $("tagSave").style.display = groups.length ? "" : "none";
-  $("tagClear").style.display = onlyChanged ? "" : "none";
+  $("tagClear").style.display = review ? "none" : "";
   $("tagModal").style.display = "flex";
 }
 
 window.openTagModal = function () {
   openChooser({
     title: "Review new events",
-    sub: "Only you see this list. One choice covers every event with the same name, now and in future.",
+    sub: "Only you see this list. One choice covers every event with the same name, now and in future, unless you choose date by date.",
     groups: groupByTitle(pendingEvents),
-    onlyChanged: false,
+    review: true,
     emptyText: "Nothing new to review.",
   });
 };
 
 async function openMyEvents() {
-  let mine = [];
+  const mine = [];
   try {
     const snap = await getDocs(collection(db, `people/${ME}/events`));
     const now = new Date();
     snap.forEach(d => {
       const e = d.data();
-      if (new Date(e.end) > now) mine.push({ id: d.id, ...e });
+      if (new Date(e.end) > now && e.source !== "manual") mine.push({ id: d.id, ...e });
     });
   } catch (e) {
     toast("Couldn't load your events. Check your connection and try again.");
@@ -828,9 +1036,9 @@ async function openMyEvents() {
   }
   openChooser({
     title: "My events",
-    sub: "Change what any event means for meeting up. One choice covers every event with the same name.",
+    sub: "Change what any event means for meeting up. Each one shows the calendar it came from.",
     groups: groupByTitle(mine),
-    onlyChanged: true,
+    review: false,
     emptyText: "No upcoming events yet. Add a calendar and sync it first.",
   });
 }
@@ -841,13 +1049,15 @@ async function openMyEvents() {
 window.clearMyEvents = async function () {
   if (!confirm(
     `Remove every event synced under ${personLabel(ME)}?\n\n` +
-    "Your real calendars aren't touched, and your Busy / Free choices are remembered. " +
+    "Your real calendars aren't touched, and your choices and kids days are kept. " +
     "Sync your calendars again afterwards to bring your own events back."
   )) return;
   try {
     const snap = await getDocs(collection(db, `people/${ME}/events`));
     const writes = [];
-    snap.forEach(d => writes.push([doc(db, `people/${ME}/events/${d.id}`), null]));
+    snap.forEach(d => {
+      if (d.data().source !== "manual") writes.push([doc(db, `people/${ME}/events/${d.id}`), null]);
+    });
     await commitWrites(writes);
     pendingEvents = [];
     showReviewBanner();
@@ -866,19 +1076,24 @@ window.closeTagModal = function () {
 
 window.saveTagChoices = async function () {
   if (!chooser) return;
-  const { groups, onlyChanged } = chooser;
+  const { groups, review } = chooser;
   const writes = [];
   let changed = 0;
-  document.querySelectorAll("#tagList select").forEach(sel => {
-    const g = groups[Number(sel.dataset.i)];
-    const tag = sel.value;
-    if (onlyChanged && tag === g.tag && g.events.every(ev => (ev.tag || "busy") === tag)) return;
+  groups.forEach(g => {
+    let touched = false;
+    g.events.forEach((ev, k) => {
+      const tag = g.choices[k];
+      if (!review && tag === ev.tag) return;
+      writes.push([doc(db, `people/${ME}/events/${ev.id}`), eventDoc(ev, tag)]);
+      touched = true;
+    });
+    if (!touched) return;
     changed++;
-    g.events.forEach(ev => writes.push([
-      doc(db, `people/${ME}/events/${ev.id}`),
-      { title: ev.title, start: ev.start, end: ev.end, tag, ...(ev.source ? { source: ev.source } : {}) },
-    ]));
-    writes.push([doc(db, `people/${ME}/rules/${titleRule(g.title)}`), { tag }]);
+    // A single choice for the whole title becomes the rule for future dates.
+    // Mixed choices leave the rule alone, so new dates get asked about.
+    if (g.choices.every(c => c === g.choices[0])) {
+      writes.push([doc(db, `people/${ME}/rules/${titleRule(g.title)}`), { tag: g.choices[0] }]);
+    }
   });
 
   const saveBtn = $("tagSave");
@@ -892,7 +1107,7 @@ window.saveTagChoices = async function () {
   }
   saveBtn.disabled = false;
 
-  if (!onlyChanged) {
+  if (review) {
     const done = new Set(groups.flatMap(g => g.events.map(ev => ev.id)));
     pendingEvents = pendingEvents.filter(ev => !done.has(ev.id));
     showReviewBanner();
@@ -954,6 +1169,54 @@ function el(tag, className, text) {
    GRID — six months rolling, three buckets a day
    ===================================================================== */
 let viewMonthOffset = 0;
+
+/* --- Bank holidays: marked on the grid, never treated as busy ---
+   The dates come from the official gov.uk lists and are kept on the device
+   for a week, so the page still shows them offline. A holiday that isn't
+   shared by every list says which one it belongs to. */
+const HOLIDAY_KEY = "meetup-holidays";
+const REGION_NAMES = { "scotland": "Scotland", "england-and-wales": "England and Wales", "northern-ireland": "Northern Ireland" };
+const holidayRegions = () => CONFIG.holidayRegions || [];
+let holidays = {};
+function readCachedHolidays() {
+  try {
+    const c = JSON.parse(localStorage.getItem(HOLIDAY_KEY) || "null");
+    if (c && c.region === holidayRegions().join("+") && c.days) {
+      holidays = c.days;
+      return Date.now() - c.at < 7 * 86400000;
+    }
+  } catch (_) {}
+  return false;
+}
+function mergeHolidays(data) {
+  const regions = holidayRegions();
+  const byDate = {};
+  regions.forEach(region => (data[region]?.events || []).forEach(e => {
+    const names = (byDate[e.date] ||= {});
+    (names[e.title] ||= []).push(region);
+  }));
+  const days = {};
+  Object.entries(byDate).forEach(([date, names]) => {
+    days[date] = Object.entries(names).map(([title, where]) =>
+      where.length === regions.length ? title : `${title} (${where.map(r => REGION_NAMES[r] || r).join(", ")} only)`
+    ).join(" / ");
+  });
+  return days;
+}
+async function refreshHolidays() {
+  if (!holidayRegions().length || readCachedHolidays()) return false;
+  try {
+    const res = await fetch("https://www.gov.uk/bank-holidays.json");
+    if (!res.ok) return false;
+    const days = mergeHolidays(await res.json());
+    if (!Object.keys(days).length) return false;
+    holidays = days;
+    localStorage.setItem(HOLIDAY_KEY, JSON.stringify({ region: holidayRegions().join("+"), at: Date.now(), days }));
+    return true;
+  } catch (_) {
+    return false; // no holiday labels this time; everything else still works
+  }
+}
 let pendingScroll = null;
 let firstRender = true;
 
@@ -962,7 +1225,7 @@ async function loadBusyIntervals(personId) {
   const intervals = [];
   snap.forEach(d => {
     const e = d.data();
-    if (e.tag === "busy" || e.tag === "kids") {
+    if (e.tag === "busy" || e.tag === "kids" || e.tag === "withkids") {
       intervals.push({ start: new Date(e.start), end: new Date(e.end), title: e.title, owner: personId, tag: e.tag });
     }
   });
@@ -1071,8 +1334,10 @@ async function renderGrid() {
     loadBusyIntervals(ME), loadBusyIntervals(OTHER), loadMatches(),
   ]);
   const all = myBusy.concat(theirBusy);
-  const busy = all.filter(iv => iv.tag === "busy");
   const kids = all.filter(iv => iv.tag === "kids");
+  // "Busy only if kids with me" events block only inside that person's kids periods.
+  const busy = all.filter(iv => iv.tag === "busy" || (iv.tag === "withkids" &&
+    kids.some(k => k.owner === iv.owner && k.start < iv.end && k.end > iv.start)));
   const now = new Date();
 
   renderHead();
@@ -1093,7 +1358,7 @@ async function renderGrid() {
     const key = dateKey(day);
     const row = el("div", "row-day");
     row.dataset.date = key;
-    if (dow === 1 && body.children.length) row.classList.add("mon");
+    const weekGap = dow === 1 && body.children.length > 0;
 
     const infos = CONFIG.buckets.map(bucket => bucketInfo(day, bucket, busy, matches, now, kids));
     if (infos.every(i => i.status === "past")) continue; // days already gone aren't shown
@@ -1108,6 +1373,15 @@ async function renderGrid() {
     row.appendChild(chip);
 
     CONFIG.buckets.forEach((bucket, i) => row.appendChild(makeCell(infos[i], day, bucket)));
+    const holiday = holidays[key];
+    if (holiday) {
+      const label = el("div", "hol", `Bank holiday · ${holiday}`);
+      if (weekGap) label.classList.add("mon");
+      body.appendChild(label);
+      chip.classList.add("hol-day");
+    } else if (weekGap) {
+      row.classList.add("mon");
+    }
     body.appendChild(row);
   }
 
@@ -1275,6 +1549,202 @@ function downloadIcs(dateStr, bucket) {
 }
 
 /* =====================================================================
+   KIDS DAYS
+   A tap-to-set calendar of the days this person has their kids, for
+   patterns that change week to week and don't suit a repeating event.
+   Each day is stored as an all-day "kids" event with source "manual",
+   so it shows on the planner as that person's kids badge, is never
+   touched by a calendar sync, and stays out of My events.
+   The same screen compares those days with the "Free, kids with me"
+   events in the person's synced calendars, and can download the days
+   as calendar entries.
+   ===================================================================== */
+const KID_TITLE_KEY = `meetup-kids-title-${ME}`;
+const kidsTitle = () => (localStorage.getItem(KID_TITLE_KEY) || "").trim() || "Kids with me";
+const kidDayId = (key) => `kidday-${key}`;
+function kidDayDoc(key) {
+  const start = parseKey(key);
+  const end = new Date(start.getFullYear(), start.getMonth(), start.getDate() + 1);
+  return { title: kidsTitle(), start: start.toISOString(), end: end.toISOString(), tag: "kids", source: "manual", day: key };
+}
+
+async function openKidsDays() {
+  const manual = new Set();
+  const fromCalendar = [];
+  try {
+    const snap = await getDocs(collection(db, `people/${ME}/events`));
+    snap.forEach(d => {
+      const e = d.data();
+      if (e.tag !== "kids") return;
+      if (e.source === "manual") manual.add(e.day || d.id.replace(/^kidday-/, ""));
+      else fromCalendar.push({ start: new Date(e.start), end: new Date(e.end) });
+    });
+  } catch (e) {
+    toast("Couldn't load your days. Check your connection and try again.");
+    return;
+  }
+
+  const now = new Date();
+  const todayKey = dateKey(now);
+  const firstHour = Math.min(...CONFIG.buckets.map(b => b.startHour));
+  const lastHour = Math.max(...CONFIG.buckets.map(b => b.endHour));
+  // A calendar event counts for a day if it covers any of that day's slots.
+  const inCalendar = (day) => {
+    const a = new Date(day); a.setHours(firstHour, 0, 0, 0);
+    const b = new Date(day); b.setHours(lastHour, 0, 0, 0);
+    return fromCalendar.some(iv => iv.start < b && iv.end > a);
+  };
+  let offset = 0;
+
+  openSheet(card => {
+    card.style.setProperty("--kid", `var(--kid-${Math.max(0, CONFIG.people.findIndex(p => p.id === ME))})`);
+    card.append(el("h3", "", "Days I have the kids"));
+    card.append(el("p", "sub", "Tap a day to switch it on or off. It saves straight away and shows on the planner as your kids badge."));
+
+    const nav = el("div", "monthnav");
+    const prev = el("button", "round", "‹"); prev.type = "button"; prev.setAttribute("aria-label", "Previous month");
+    const label = el("h2");
+    const next = el("button", "round", "›"); next.type = "button"; next.setAttribute("aria-label", "Next month");
+    nav.append(prev, label, next);
+    const grid = el("div", "kd-grid");
+    const key = el("p", "kd-key");
+    const diffBox = el("div", "kd-diff");
+    card.append(nav, grid, key, diffBox);
+
+    const field = el("label", "kd-field");
+    const input = document.createElement("input");
+    input.type = "text"; input.maxLength = 60; input.value = kidsTitle();
+    input.onchange = () => localStorage.setItem(KID_TITLE_KEY, input.value.trim());
+    field.append(el("span", "", "Name for the entries in your calendar"), input);
+    card.append(field);
+
+    const actions = el("div", "actions");
+    const download = el("button", "btn ghost", "Download for my calendar"); download.type = "button";
+    const done = el("button", "btn", "Done"); done.type = "button";
+    done.onclick = closeSheet;
+    actions.append(download, done);
+    card.append(actions);
+
+    async function setDay(dayKey, on) {
+      if (on) manual.add(dayKey); else manual.delete(dayKey);
+      refresh();
+      try {
+        await commitWrites([[doc(db, `people/${ME}/events/${kidDayId(dayKey)}`), on ? kidDayDoc(dayKey) : null]]);
+        renderGrid();
+      } catch (e) {
+        if (on) manual.delete(dayKey); else manual.add(dayKey);
+        refresh();
+        toast("Couldn't save that day. Check your connection and try again.");
+      }
+    }
+
+    function refresh() {
+      const month = new Date(now.getFullYear(), now.getMonth() + offset, 1);
+      label.textContent = month.toLocaleString("en-GB", { month: "long", year: "numeric" });
+      prev.disabled = offset <= 0;
+      next.disabled = offset >= CONFIG.monthsAhead;
+      const compare = fromCalendar.length > 0;
+
+      grid.replaceChildren();
+      ["M", "T", "W", "T", "F", "S", "S"].forEach(d => grid.append(el("div", "kd-wd", d)));
+      for (let i = 0; i < (month.getDay() + 6) % 7; i++) grid.append(el("div"));
+      const days = new Date(month.getFullYear(), month.getMonth() + 1, 0).getDate();
+      for (let d = 1; d <= days; d++) {
+        const day = new Date(month.getFullYear(), month.getMonth(), d);
+        const dayKey = dateKey(day);
+        const on = manual.has(dayKey);
+        const cal = compare && inCalendar(day);
+        const b = el("button", "kd-day", String(d));
+        b.type = "button";
+        b.dataset.day = dayKey;
+        if (on) b.classList.add("on");
+        if (cal) b.classList.add("cal");
+        if (compare && on !== cal && dayKey >= todayKey) b.classList.add("diff");
+        if (dayKey < todayKey) b.disabled = true;
+        b.setAttribute("aria-pressed", String(on));
+        b.setAttribute("aria-label", `${longDate(day)}: ${on ? "kids with me" : "not set"}` +
+          (compare ? `, ${cal ? "in" : "not in"} your synced calendar` : ""));
+        b.onclick = () => setDay(dayKey, !on);
+        grid.append(b);
+      }
+
+      key.textContent = compare
+        ? "Filled: set here. Dot: in your synced calendar. Amber ring: the two disagree."
+        : "Filled: set here.";
+
+      diffBox.replaceChildren();
+      diffBox.append(el("h4", "", "Compared with your synced calendar"));
+      if (!compare) {
+        diffBox.append(el("p", "empty",
+          "Nothing in your synced calendar is marked \"Free, kids with me\" yet, so there's nothing to compare. " +
+          "Download these days into your calendar and sync, and they'll be matched up here."));
+        return;
+      }
+      const diffs = [];
+      for (let i = 0; i <= CONFIG.monthsAhead * 31; i++) {
+        const day = new Date(now.getFullYear(), now.getMonth(), now.getDate() + i);
+        const dayKey = dateKey(day);
+        const on = manual.has(dayKey), cal = inCalendar(day);
+        if (on !== cal) diffs.push({ day, dayKey, on });
+      }
+      if (!diffs.length) {
+        diffBox.append(el("p", "empty", "They match. Every day set here is in your calendar, and the other way round."));
+        return;
+      }
+      diffBox.append(el("p", "empty", `${diffs.length} ${diffs.length === 1 ? "day doesn't" : "days don't"} match.`));
+      diffs.slice(0, 14).forEach(({ day, dayKey, on }) => {
+        const line = el("div", "kd-line");
+        line.append(el("span", "", `${shortDate(day)}: ${on ? "set here, not in your calendar" : "in your calendar, not set here"}`));
+        const fix = el("button", "linkbtn", on ? "Remove here" : "Add here");
+        fix.type = "button";
+        fix.onclick = () => setDay(dayKey, !on);
+        line.append(fix);
+        diffBox.append(line);
+      });
+      if (diffs.length > 14) diffBox.append(el("p", "empty", `…and ${diffs.length - 14} more further ahead.`));
+    }
+
+    prev.onclick = () => { offset--; refresh(); };
+    next.onclick = () => { offset++; refresh(); };
+    download.onclick = () => {
+      const keys = [...manual].filter(k => k >= todayKey).sort();
+      if (!keys.length) { toast("No days are set yet."); return; }
+      const title = kidsTitle();
+      const esc = (t) => t.replace(/([\\;,])/g, "\\$1");
+      const ymd = (d) => dateKey(d).replace(/-/g, "");
+      const stampNow = new Date().toISOString().replace(/[-:]/g, "").split(".")[0] + "Z";
+      const lines = ["BEGIN:VCALENDAR", "VERSION:2.0", "PRODID:-//q-time-planner//EN"];
+      keys.forEach(k => {
+        const start = parseKey(k);
+        const end = new Date(start.getFullYear(), start.getMonth(), start.getDate() + 1);
+        lines.push(
+          "BEGIN:VEVENT",
+          // The same day always gets the same UID, so adding the file twice doesn't duplicate it.
+          `UID:kidday-${k}-${ME}@q-time-planner`,
+          `DTSTAMP:${stampNow}`,
+          `DTSTART;VALUE=DATE:${ymd(start)}`,
+          `DTEND;VALUE=DATE:${ymd(end)}`,
+          `SUMMARY:${esc(title)}`,
+          "TRANSP:TRANSPARENT",
+          "END:VEVENT"
+        );
+      });
+      lines.push("END:VCALENDAR");
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(new Blob([lines.join("\r\n")], { type: "text/calendar" }));
+      a.download = "kids-days.ics";
+      a.click();
+      // When these entries come back through a calendar sync, recognise them
+      // as kids days without asking.
+      commitWrites([[doc(db, `people/${ME}/rules/${titleRule(title)}`), { tag: "kids" }]]).catch(() => {});
+      toast(`${keys.length} ${keys.length === 1 ? "day" : "days"} ready to add to your calendar.`);
+    };
+
+    refresh();
+  });
+}
+
+/* =====================================================================
    BOOT
    ===================================================================== */
 function boot() {
@@ -1287,7 +1757,9 @@ function boot() {
   renderConnectRow();
   renderKidsLegend();
   showReviewBanner();
+  readCachedHolidays();
   renderGrid().then(autoSync);
+  refreshHolidays().then(changed => { if (changed) renderGrid(); });
 }
 </script>
 <script src="https://accounts.google.com/gsi/client" async defer></script>
